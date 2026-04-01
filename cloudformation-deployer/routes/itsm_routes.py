@@ -55,7 +55,7 @@ def query_itsm_change():
             return jsonify({'error': 'ITSM authentication failed'}), 401
         
         # Query the change request
-        query_url = 'https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:QueryChange/execute?mode=sync'
+        query_url = 'https://itsmweb.{}bank.co.za:{port}/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:QueryChange/execute?mode=sync'
         
         request_body = {
             'inputParameters': [
@@ -96,7 +96,7 @@ def itsm_access():
     try:
         # Check if user has active session (you might want to implement session management)
         return jsonify({
-            'itsm_url': 'https://itsmweb.standardbank.co.za/arsys/',
+            'itsm_url': 'https://itsmweb.{}bank.co.za/arsys/',
             'message': 'ITSM access available via SSO after login'
         })
     except Exception as e:
@@ -110,7 +110,7 @@ def get_change_status(change_id):
         return jsonify({
             'change_id': change_id,
             'status': 'Check ITSM directly for current status',
-            'itsm_url': f'https://itsmweb.standardbank.co.za/arsys/forms/itsmweb.standardbank.co.za/CHG%3AChangeInterface/Default%20Administrator%20View/?mode=search&F304255610=%3D%22{change_id}%22'
+            'itsm_url': f'https://itsmweb.{}bank.co.za/arsys/forms/itsmweb.standardbank.co.za/CHG%3AChangeInterface/Default%20Administrator%20View/?mode=search&F304255610=%3D%22{change_id}%22'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
