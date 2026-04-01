@@ -1,0 +1,24 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Simple S3 bucket template'
+Parameters:
+  BucketName:
+    Type: String
+    Description: Name for the S3 bucket
+    Default: my-test-bucket
+  Environment:
+    Type: String
+    Description: Environment name
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+Resources:
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${BucketName}-${Environment}"
+Outputs:
+  BucketName:
+    Description: Name of the created bucket
+    Value: !Ref MyS3Bucket

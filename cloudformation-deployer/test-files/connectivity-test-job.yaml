@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connectivity-test-script
+  namespace: argocd
+data:
+  test.sh: |
+    #!/bin/sh
+    echo "🔍 ON-PREM CLUSTER CONNECTIVITY TEST FROM AWS"
+    echo "============================================================"
+    
+    HOST="10.145.21.231"
+    PORT="6443"
+    
+    echo ""
+    echo "1️⃣ Testing TCP connection to $HOST:$PORT..."
+    if timeout 5 nc -zv $HOST $PORT 2>&1; then
+        echo "✅ TCP connection successful"
+        TCP_OK=1
+    else
+        echo "❌ TCP connection failed"
+        TCP_OK=0
+    fi
+    
+    echo ""
+    echo "2️⃣ Testing with wget..."
+    if timeout 5 wget --no-check-certificate -O- https://$HOST:$PORT/version 2>&1 | head -20; then
+        echo "✅ HTTPS connection successful"
+        HTTPS_OK=1
+    else
+        echo "❌ HTTPS connection failed"
+        HTTPS_OK=0
+    fi
+    
+    echo ""
+    echo "============================================================"
+    echo "📋 SUMMARY:"
+    if [ $TCP_OK -eq 1 ]; then
+        echo "   TCP Connection:    ✅"
+    else
+        echo "   TCP Connection:    ❌"
+    fi
+    
+    if [ $HTTPS_OK -eq 1 ]; then
+        echo "   HTTPS Endpoint:    ✅"
+    else
+        echo "   HTTPS Endpoint:    ❌"
+    fi
+    
+    if [ $TCP_OK -eq 1 ] && [ $HTTPS_OK -eq 1 ]; then
+        echo ""
+        echo "✅ AWS cluster CAN reach on-prem cluster!"
+        exit 0
+    else
+        echo ""
+        echo "❌ AWS cluster CANNOT reach on-prem cluster"
+        exit 1
+    fi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: connectivity-test
+  namespace: argocd
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: test
+        image: busybox:latest
+        command: ["/bin/sh", "/script/test.sh"]
+        volumeMounts:
+        - name: script
+          mountPath: /script
+      volumes:
+      - name: script
+        configMap:
+          name: connectivity-test-script
