@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CloudForge</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="header">
+        <div class="header-logo">
+            <img src="sbicon.jpeg" alt="Standard Bank" class="sb-logo-img">
+            Standard Bank
+        </div>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <div id="userEmailDisplay" style="color: white; font-size: 14px;"></div>
+            <button type="button" onclick="logout()" class="user-info-btn" style="margin-top: 0;">Logout</button>
+        </div>
+        <div class="test-credentials-container">
+            <button type="button" onclick="openAwsConfig()" class="aws-config-btn">AWS Configuration</button>
+            <button type="button" onclick="openServiceCatalog()" class="service-catalog-btn">Service Catalog</button>
+        </div>
+        <div class="support-info">
+            Support: <a href="mailto:Sbg-DevOps-CloudEngineering@standardbank.co.za?subject=CloudForge Support Request" style="color: rgba(255,255,255,0.9); text-decoration: underline;">Sbg-DevOps-CloudEngineering@standardbank.co.za</a>
+        </div>
+    </div>
+    
+    <div style="position: absolute; top: 80px; left: 20px; z-index: 10;">
+        <button type="button" onclick="openVpcHelper()" class="aws-config-btn" style="background: #28a745;">VPC Helper</button>
+        <button type="button" onclick="openITSM()" class="service-catalog-btn" style="background: #6f42c1; margin-left: 10px;">ITSM Access</button>
+    </div>
+    
+    <!-- User Policy Icon (Above Footer) -->
+    <div id="userPolicyIcon" style="position: absolute; bottom: 100px; left: 20px; z-index: 10; text-align: center; cursor: pointer; display: none;" onclick="openUserPolicy()">
+        <img src="OIP.webp" alt="User Policy" style="width: 50px; height: 50px; border-radius: 50%; border: 2px solid #007cba; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+        <div style="color: #007cba; font-size: 12px; font-weight: bold; margin-top: 5px;">User Policy</div>
+    </div>
+    
+    <div class="main-content">
+        <h1 style="position: relative; z-index: 1; color: #333;">⚡ CloudForge</h1>
+    
+        <div class="form-group">
+            <label>Deployment Mode:</label>
+            <select id="deploymentMode">
+                <option value="new">New Deployment</option>
+                <option value="update">Update Existing Stack</option>
+                <option value="delete">Delete Stack</option>
+            </select>
+        </div>
+        
+        <!-- Stack Search Group -->
+        <div class="form-group" id="stackSearchGroup" style="display: none;">
+            <label>Search Existing Stack:</label>
+            <div style="position: relative;">
+                <input type="text" id="stackSearchName" placeholder="Enter stack name to search" oninput="filterStacks()">
+                <div id="stack-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 9999; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"></div>
+            </div>
+            <button type="button" id="stackActionButton" onclick="searchStack()">Upload Stack</button>
+        </div>
+        
+        <!-- Delete Stack Group -->
+        <div class="form-group" id="deleteStackGroup" style="display: none;">
+            <label>Search Stack to Delete:</label>
+            <div style="position: relative;">
+                <input type="text" id="deleteStackName" placeholder="Enter stack name to delete" oninput="filterDeleteStacks()">
+                <div id="delete-stack-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 9999; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"></div>
+            </div>
+            <button type="button" onclick="confirmDeleteStack()" class="cancel-btn" style="background: #dc3545; margin-top: 10px;">Confirm Stack</button>
+        </div>
+
+        <!-- Template Selector -->
+        <div class="form-group">
+            <label>Select Template:</label>
+            <select id="templateSelector">
+                <option value="">Loading templates...</option>
+                <option value="custom">Custom Upload</option>
+            </select>
+        </div>
+        
+        <div class="form-group" id="customUpload" style="display: none;">
+            <label>Upload CloudFormation Template:</label>
+            <input type="file" id="templateFile" accept=".yaml,.yml,.json">
+        </div>
+        
+        <div id="guardFindings" style="display:none;"></div>
+        <div id="parameters">
+            <h3>Template Parameters</h3>
+            <div id="parameterInputs"></div>
+            
+            <div class="pagination-controls">
+                <button id="prevButton" onclick="previousGroup()" style="display: none;">Previous</button>
+                <span id="pageInfo"></span>
+                <button id="nextButton" onclick="nextGroup()">Next</button>
+            </div>
+            
+            <div class="form-group" id="stackNameGroup" style="display: none;">
+                <label>Stack Name:</label>
+                <div style="position: relative; display: flex; align-items: center;">
+                    <input type="text" id="stackName" required oninput="validateStackName()" maxlength="128" style="flex: 1;">
+                    <span id="templateSuffix" style="margin-left: 10px; color: #666; font-style: italic;"></span>
+                </div>
+                <div id="stackNameValidation" style="font-size: 12px; margin-top: 5px;"></div>
+                <div id="stackNameCounter" style="font-size: 12px; color: #666; margin-top: 2px;">Character count: 0/128</div>
+            </div>
+            
+            <button id="deployButton" onclick="deployStack()">Deploy Stack</button>
+            
+            <!-- Hidden fields to store AWS config from popup -->
+            <input type="hidden" id="region">
+            <input type="hidden" id="accountId">
+            <input type="hidden" id="accessKeyId">
+            <input type="hidden" id="secretAccessKey">
+        </div>
+        
+        <div id="result"></div>
+    </div>
+    
+    <div class="footer">
+        <div class="footer-logo">
+            <img src="sbicon.jpeg" alt="Standard Bank" class="sb-logo-img">
+            Standard Bank
+        </div>
+        <div>Powered by CloudForge</div>
+    </div>
+    
+    <!-- Include all popup HTML here -->
+    <!-- AWS Config Popup -->
+    <div class="popup-overlay" id="awsConfigPopup">
+        <div class="popup">
+            <button type="button" onclick="closeAwsConfig()" class="close-btn">&times;</button>
+            <h3>AWS Configuration</h3>
+            <div class="popup-form-group">
+                <label>AWS Region:</label>
+                <select id="popupRegion" oninput="validateAwsConfigForm()">
+                    <option value="af-south-1">af-south-1</option>
+                    <option value="us-west-2">us-west-2</option>
+                    <option value="eu-west-1">eu-west-1</option>
+                    <option value="us-east-1">us-east-1</option>
+                    <option value="ap-southeast-1">ap-southeast-1</option>
+                </select>
+            </div>
+            <div class="popup-form-group">
+                <label>AWS Account ID:</label>
+                <input type="text" id="popupAccountId" placeholder="123456789012" required oninput="validateAwsConfigForm()">
+            </div>
+            <div class="popup-form-group">
+                <label>AWS Access Key ID (Base64 encoded):</label>
+                <input type="password" id="popupAccessKeyId" oninput="validateAwsConfigForm()">
+            </div>
+            <div class="popup-form-group">
+                <label>AWS Secret Access Key (Base64 encoded):</label>
+                <input type="password" id="popupSecretAccessKey" oninput="validateAwsConfigForm()">
+            </div>
+            <div class="popup-buttons">
+                <button type="button" id="testCredentialsBtn" onclick="testCredentialsFromPopup()" class="test-btn" disabled>Test Credentials</button>
+                <button type="button" id="saveConfigBtn" onclick="saveAwsConfig()" class="save-btn" disabled>Save</button>
+                <button type="button" onclick="clearAwsConfig()" class="clear-btn">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deploy Confirmation Popup -->
+    <div class="popup-overlay" id="deployConfirmPopup">
+        <div class="popup" style="min-width: 500px;">
+            <button type="button" onclick="closeDeployConfirm()" class="close-btn">&times;</button>
+            <h3 style="color: #28a745;">✓ Confirm Stack Deployment</h3>
+            <div id="deployStackInfo">
+                <p id="deployActionText"><strong>You're about to deploy this stack:</strong></p>
+                <p style="font-size: 18px; color: #28a745; font-weight: bold;" id="deployStackNameDisplay"></p>
+                <!--Release Train Engineer list-->
+                <div id="deployRteGroup" style="margin: 15px 0; display: none;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">RTE (Release Train Engineer):</label>
+                    <input type="email" id="deployRte" list="deployRteOptions" onchange="toggleDeployEnvironmentField()" placeholder="Select from list or enter custom email: user@standardbank.co.za..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" required>
+                    <datalist id="deployRteOptions">
+                        <option value="Xolani.Madonsela@standardbank.co.za">Xolani Madonsela</option>
+                        <option value="Juanita.DeJong@standardbank.co.za">Juanita De Jong</option>
+                        <option value="Nqobile.Feleza@standardbank.co.za">Nqobile Feleza</option>
+                        <option value="Premchand.Anirudh@standardbank.co.za">Prem Anirudh</option>
+                    </datalist>
+                </div>
+                
+                <div id="deployEnvironmentGroup" style="margin: 15px 0;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Environment:</label>
+                    <select id="deployEnvironment" onchange="toggleDeployCrqField()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" disabled>
+                        <option value="">Select Environment</option>
+                        <option value="DEV">DEV Account</option>
+                        <option value="SIT">SIT Account</option>
+                        <option value="PROD">PROD Account</option>
+                    </select>
+                </div>
+                
+                <div id="deployCrqField" style="margin: 15px 0; display: none;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">CRQ ID:</label>
+                    <input type="text" id="deployCrqId" placeholder="CRQ will be created automatically..." readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                    <small id="deployCrqValidation" style="color: #666; display: block;"></small>
+                </div>
+            </div>
+            <div class="popup-buttons">
+                <button type="button" onclick="closeDeployConfirm()" class="cancel-btn">Cancel</button>
+                <button type="button" id="confirmDeployBtn" onclick="executeStackDeployment()" class="submit-btn" disabled>Confirm Deploy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Popup -->
+    <div class="popup-overlay" id="deleteConfirmPopup">
+        <div class="popup" style="min-width: 500px;">
+            <button type="button" onclick="closeDeleteConfirm()" class="close-btn">&times;</button>
+            <h3 style="color: #dc3545;">⚠️ Confirm Stack Deletion</h3>
+            <p id="deleteActionText" style="margin: 15px 0;">You're about to delete this stack:</p>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <p><strong>Stack Name:</strong> <span id="deleteStackNameDisplay"></span></p>
+                <p id="stackCreationDate"></p>
+                <p id="stackLastUpdate"></p>
+                <p id="stackResourceCount"></p>
+                <div id="stackServices"></div>
+            </div>
+            
+            <div id="deleteRteGroup" style="margin: 15px 0; display: none;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">RTE (Release Train Engineer):</label>
+                <input type="email" id="deleteRte" list="deleteRteOptions" onchange="toggleDeleteEnvironmentField()" placeholder="Select from list or enter custom email..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" required>
+                <datalist id="deleteRteOptions">
+                    <option value="Xolani.Madonsela@standardbank.co.za">Xolani Madonsela</option>
+                    <option value="Juanita.DeJong@standardbank.co.za">Juanita De Jong</option>
+                    <option value="Nqobile.Feleza@standardbank.co.za">Nqobile Feleza</option>
+                    <option value="Premchand.Anirudh@standardbank.co.za">Prem Anirudh</option>
+                </datalist>
+            </div>
+            
+            <div id="deleteEnvironmentGroup" style="margin: 15px 0;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Environment:</label>
+                <select id="deleteEnvironment" onchange="toggleDeleteCrqField()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" disabled>
+                    <option value="">Select Environment</option>
+                    <option value="DEV">DEV Account</option>
+                    <option value="SIT">SIT Account</option>
+                    <option value="PROD">PROD Account</option>
+                </select>
+            </div>
+            
+            <div id="deleteCrqField" style="margin: 15px 0; display: none;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">CRQ ID:</label>
+                <input type="text" id="deleteCrqId" placeholder="CRQ will be created automatically..." readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                <small id="deleteCrqValidation" style="color: #666; display: block;"></small>
+            </div>
+            
+            <div class="popup-buttons">
+                <button type="button" onclick="closeDeleteConfirm()" class="cancel-btn">Cancel</button>
+                <button type="button" id="confirmDeleteBtn" onclick="executeStackDeletion()" class="submit-btn" style="background: #dc3545;" disabled>Confirm Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ITSM Query Popup -->
+    <div class="popup-overlay" id="itsmQueryPopup">
+        <div class="popup" style="min-width: 600px; max-width: 800px;">
+            <button type="button" onclick="closeITSMQuery()" class="close-btn">&times;</button>
+            <h3 style="color: #6f42c1;">ITSM CRQ Query</h3>
+            
+            <div class="popup-form-group">
+                <label>CRQ Change Number:</label>
+                <input type="text" id="crqQueryNumber" placeholder="Enter CRQ number (e.g., CRQ000000682238)" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <div class="popup-buttons">
+                <button type="button" onclick="searchCRQ()" class="submit-btn" style="background: #6f42c1;">Search CRQ</button>
+                <button type="button" onclick="window.open('https://itsmweb.standardbank.co.za/arsys', '_blank')" class="submit-btn" style="background: #c71585;">ITSM Home</button>
+                <button type="button" onclick="openItsmUpdateManually()" class="submit-btn" style="background: #007cba;">ITSM CRQ Update</button>
+                <button type="button" onclick="closeITSMQuery()" class="clear-btn">Close</button>
+            </div>
+            
+            <div id="crqQueryResults" style="display: none; margin-top: 20px;"></div>
+        </div>
+    </div>
+
+    <!-- ITSM Updates Window -->
+    <div id="itsmUpdatesWindow" style="display: none; position: fixed; top: 100px; right: 20px; width: 350px; background: white; border: 2px solid #007cba; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1003;">
+        <div id="itsmUpdatesHeader" style="background: #007cba; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: move;">
+            <h4 style="margin: 0;">ITSM Updates</h4>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="contextTimer" title="Time remaining for deployment context" style="color: #add8e6; font-size: 11px; white-space: nowrap;"></span>
+                <button onclick="clearDeploymentContext(); showAlert('Deployment context cleared', 'info');" title="Clear saved deployment context" style="background: none; border: none; color: white; font-size: 14px; cursor: pointer; padding: 0;">🗑</button>
+                <button onclick="minimizeItsmUpdates()" style="background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 0;">−</button>
+                <button onclick="closeItsmUpdates()" style="background: none; border: none; color: white; font-size: 16px; cursor: pointer; padding: 0;">&times;</button>
+            </div>
+        </div>
+        <div id="itsmUpdatesContent" style="padding: 15px;">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">CRQ ID:</label>
+                <input type="text" id="itsmCrqId" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; color: #666;">
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">CRQ Plan:</label>
+                <select id="itsmCrqPlan" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">Select CRQ Plan</option>
+                    <option value="Deployment">Deployment</option>
+                    <option value="Update">Update</option>
+                    <option value="Cancelled">Cancelled</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Work Info Type:</label>
+                <select id="itsmWorkInfoType" onchange="handleWorkInfoTypeChange()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">Select Work Info Type</option>
+                    <option value="23000">23000 - Post Implementation Review</option>
+                    <option value="11000">11000 - Backout Plan</option>
+                    <option value="22000">22000 - Cancellation Information</option>
+                    <option value="20000">20000 - Test Results</option>
+                    <option value="16000">16000 - Test Plan</option>
+                    <option value="14000">14000 - Install Plan</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">TCR Screendump:</label>
+                <input type="file" id="itsmTcrScreendump" accept=".png,.jpg,.jpeg" multiple onchange="generateImplementationPlan()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <small style="color: #666;">Upload screenshot (PNG, JPG, JPEG)</small>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Attachment Name:</label>
+                <input type="text" id="itsmAttachmentName" value="implementPlan.docx" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; color: #666;">
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Attachment Status:</label>
+                <input type="text" id="itsmAttachmentStatus" value="No document generated" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; color: #666;">
+                <small style="color: #666;">Auto-generated from TCR Screendump</small>
+            </div>
+            
+            <button id="itsmUpdateBtn" onclick="updateCrqWork()" style="background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%;">CRQ Update</button>
+            
+            <div id="closeCrqSection" style="display: none; margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Close CRQ:</label>
+                    <input type="text" id="closeCrqId" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5; color: #666;">
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">CRQ Status Reason:</label>
+                    <select id="crqStatusReason" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="">Select Status Reason</option>
+                        <option value="8000">Backed Out - 8000</option>
+                        <option value="5000">Successful - 5000</option>
+                        <option value="6000">Successful with Issues - 6000</option>
+                        <option value="7000">Unsuccessful - 7000</option>
+                    </select>
+                </div>
+                
+                <button onclick="closeCrq()" style="background: #6f42c1; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%;">Close CRQ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Service Catalog Popup -->
+    <div class="popup-overlay" id="serviceCatalogPopup">
+        <div class="popup" style="min-width: 600px; max-width: 800px; max-height: 80vh; overflow-y: auto;">
+            <button type="button" onclick="closeServiceCatalog()" class="close-btn">&times;</button>
+            <h3>Service Catalog</h3>
+            
+            <!-- Navigation tabs -->
+            <div style="margin-bottom: 20px; border-bottom: 2px solid #007cba;">
+                <button type="button" id="scProductsTab" onclick="showServiceCatalogTab('products')" style="background: #007cba; color: white; padding: 10px 20px; border: none; margin-right: 5px;">Browse Products</button>
+                <button type="button" id="scProvisionedTab" onclick="showServiceCatalogTab('provisioned')" style="background: #f8f9fa; color: #333; padding: 10px 20px; border: 1px solid #ddd; margin-right: 5px;">My Resources</button>
+                <button type="button" onclick="openVpcHelper()" style="background: #28a745; color: white; padding: 10px 20px; border: none; margin-left: 10px;">VPC Helper</button>
+            </div>
+            
+            <div id="scProductList">
+                <h4>Available Products</h4>
+                <div id="scProductsContainer" style="max-height: 60vh; overflow-y: auto;"></div>
+            </div>
+            
+            <div id="scProvisionedList" style="display: none;">
+                <h4>My Provisioned Resources</h4>
+                <div id="scProvisionedContainer" style="max-height: 60vh; overflow-y: auto;"></div>
+            </div>
+            
+            <div id="scVersionSelection" style="display: none;">
+                <h4 id="scVersionProductName"></h4>
+                <p>Select a version:</p>
+                <div id="scVersionsContainer" style="max-height: 50vh; overflow-y: auto;"></div>
+                <div class="popup-buttons" style="margin-top: 15px;">
+                    <button type="button" onclick="goBackToProducts()" class="home-btn">Back</button>
+                </div>
+            </div>
+            
+            <div id="scProductDetails" style="display: none;">
+                <h4 id="scProductName"></h4>
+                <div id="scParametersContainer" style="max-height: 50vh; overflow-y: auto;"></div>
+                <div class="popup-buttons">
+                    <button type="button" onclick="goBackToVersions()" class="home-btn">Back</button>
+                    <button type="button" onclick="clearProductFields()" class="clear-btn">Clear</button>
+                    <button type="button" onclick="provisionProduct()" class="submit-btn">Submit</button>
+                </div>
+            </div>
+            
+            <div id="scProvisionStatus" style="display: none;">
+                <div id="scLoadingMessage" class="sc-loading">
+                    <div class="sc-spinner"></div>
+                    <p><strong>Please wait for the deployment to finish. Do not close the window.</strong></p>
+                </div>
+                <div id="scResultMessage" style="display: none;">
+                    <div id="scOutputs"></div>
+                    <button type="button" id="scCloseButton" onclick="closeServiceCatalogWithMessage()" class="close-window-btn" style="display: none;">Close Window</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Resources Popup -->
+    <div class="popup-overlay" id="productResourcesPopup">
+        <div class="popup" style="min-width: 600px; max-width: 800px; max-height: 80vh; overflow-y: auto;">
+            <button type="button" onclick="closeProductResources()" class="close-btn">&times;</button>
+            <h3 id="productResourcesTitle">Product Resources</h3>
+            <div id="productResourcesContent" style="max-height: 60vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <!-- Terminate Product Confirmation Popup -->
+    <div class="popup-overlay" id="terminateConfirmPopup">
+        <div class="popup" style="min-width: 500px;">
+            <button type="button" onclick="closeTerminateConfirm()" class="close-btn">&times;</button>
+            <h3 style="color: #dc3545;">⚠ Terminate Service Catalog Product</h3>
+            <p id="terminateActionText" style="margin: 15px 0;"></p>
+            <div id="terminateProductDetails" style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;"></div>
+            
+            <div class="popup-form-group" id="terminateRteGroup" style="display: none;">
+                <label>RTE (Release Train Engineer): <span style="color: red;">*</span></label>
+                <input type="email" id="terminateRte" list="terminateRteOptions" onchange="validateTerminateRteForm()" placeholder="Select from list or enter custom email..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" required>
+                <datalist id="terminateRteOptions">
+                    <option value="Xolani.Madonsela@standardbank.co.za">Xolani Madonsela</option>
+                    <option value="Juanita.DeJong@standardbank.co.za">Juanita De Jong</option>
+                    <option value="Nqobile.Feleza@standardbank.co.za">Nqobile Feleza</option>
+                    <option value="Premchand.Anirudh@standardbank.co.za">Prem Anirudh</option>
+                </datalist>
+            </div>
+            
+            <div class="popup-form-group">
+                <label>Environment: <span style="color: red;">*</span></label>
+                <select id="terminateEnvironment" onchange="validateTerminateForm()" required disabled>
+                    <option value="">Select Environment</option>
+                    <option value="DEV">DEV</option>
+                    <option value="SIT">SIT</option>
+                    <option value="PROD">PROD</option>
+                </select>
+            </div>
+            
+            <div class="popup-form-group" id="terminateCrqGroup" style="display: none;">
+                <label>CRQ ID: <span style="color: red;">*</span></label>
+                <input type="text" id="terminateCrqId" placeholder="CRQ will be created automatically..." readonly style="background: #f8f9fa;">
+                <small id="terminateCrqError" style="color: #666; display: none;"></small>
+            </div>
+            
+            <div class="popup-buttons">
+                <button type="button" onclick="closeTerminateConfirm()" class="cancel-btn">Cancel</button>
+                <button type="button" id="confirmTerminateBtn" onclick="confirmTerminate()" class="submit-btn" style="background: #dc3545;" disabled>Yes, I'm Sure</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- VPC Helper Window -->
+    <div id="vpcHelperPopup" style="display: none; position: fixed; top: 20px; right: 20px; width: 400px; background: white; border: 2px solid #007cba; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1002;">
+        <div id="vpcHelperHeader" style="background: #007cba; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: move;">
+            <h4 style="margin: 0;">VPC Helper</h4>
+            <div>
+                <button onclick="minimizeVpcHelper()" style="background: none; border: none; color: white; font-size: 16px; margin-right: 10px; cursor: pointer;">−</button>
+            </div>
+        </div>
+        <div id="vpcHelperContent" style="padding: 15px; max-height: 70vh; overflow-y: auto;">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Select VPC:</label>
+                <select id="vpcHelperVpcSelect" onchange="loadVpcHelperSubnets()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">Loading VPCs...</option>
+                </select>
+            </div>
+            
+            <div id="vpcHelperSubnetsDiv" style="display: none; margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Select Subnets:</label>
+                <div id="vpcHelperSubnets" style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f9f9f9;"></div>
+            </div>
+            
+            <button id="vpcHelperShowDetails" onclick="showVpcDetails()" style="display: none; background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; margin-bottom: 15px;">Show Details</button>
+            
+            <div id="vpcHelperDetails" style="display: none;"></div>
+        </div>
+        <div style="text-align: center; padding: 10px; border-top: 1px solid #ddd;">
+            <button onclick="closeVpcHelper()" style="background: #dc3545; color: white; padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+        </div>
+    </div>
+
+    <!-- Tutorial Overlay -->
+    <div class="tutorial-overlay" id="tutorialOverlay" style="display: none;">
+        <div class="tutorial-popup" id="tutorialPopup">
+            <h4 id="tutorialTitle">Welcome to CloudForge!</h4>
+            <p id="tutorialMessage">This is your first time using CloudForge. Let me show you around!</p>
+            <button class="tutorial-ok-btn" onclick="nextTutorialStep()">OK</button>
+        </div>
+    </div>
+
+    <!-- User Policy Popup -->
+    <div class="popup-overlay" id="userPolicyPopup">
+        <div class="popup" style="min-width: 500px;">
+            <button type="button" onclick="closeUserPolicy()" class="close-btn">&times;</button>
+            <h3 style="color: #007cba;">Grant IAM User Policy Access</h3>
+            
+            <div class="popup-form-group">
+                <label>IAM User: <span style="color: red;">*</span></label>
+                <select id="iamUserSelect" onchange="validateUserPolicyForm()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <option value="">Loading users...</option>
+                </select>
+            </div>
+            
+            <div class="popup-form-group">
+                <label>IAM Policy: <span style="color: red;">*</span></label>
+                <div style="position: relative;">
+                    <input type="text" id="policySearch" placeholder="Search for policies..." oninput="filterPolicies()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <div id="policy-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 9999; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"></div>
+                </div>
+                <input type="hidden" id="selectedPolicyArn">
+            </div>
+            
+            <div id="userPolicyStatus" style="display: none; text-align: center; margin: 20px 0;">
+                <div class="spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid #007cba; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+                <p style="margin-top: 10px; color: #007cba;">Attaching the policy to user...</p>
+            </div>
+            
+            <div id="userPolicyResult" style="display: none; margin: 15px 0; padding: 15px; border-radius: 5px;"></div>
+            
+            <div class="popup-buttons">
+                <button type="button" onclick="closeUserPolicy()" class="cancel-btn">Cancel</button>
+                <button type="button" id="attachPolicyBtn" onclick="attachUserPolicy()" class="submit-btn" style="background: #28a745;" disabled>Attach Policy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include JavaScript modules -->
+    <script src="js/auth.js"></script>
+    <script src="js/aws-config.js"></script>
+    <script src="js/itsm.js"></script>
+    <script src="js/stack-operations.js"></script>
+    <script src="js/monitoring.js"></script>
+    <script src="js/parameters.js"></script>
+    <script src="js/vpc-helper.js"></script>
+    <script src="js/service-catalog.js"></script>
+    <script src="js/user-policy.js"></script>
+    <script src="js/tutorial.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CloudInfra</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; position: relative; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; }
+        .header { background: #003087; color: white; padding: 15px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header-logo { display: flex; align-items: center; font-size: 24px; font-weight: bold; }
+        .sb-logo-img { width: 40px; height: 40px; margin-right: 12px; object-fit: contain; border-radius: 4px; }
+        .support-info { font-size: 14px; color: rgba(255,255,255,0.9); }
+        .main-content { flex: 1; max-width: 800px; margin: 0 auto; padding: 20px; width: 100%; box-sizing: border-box; }
+        .footer { background: #003087; color: white; text-align: center; padding: 20px; margin-top: auto; }
+        .footer-logo { display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+        .footer .sb-logo-img { width: 30px; height: 30px; margin-right: 8px; }
+        .main-content::before { content: '⚡ CloudInfra'; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 150px; color: rgba(0, 0, 0, 0.05); z-index: 0; pointer-events: none; font-weight: bold; white-space: nowrap; }
+        .form-group { margin-bottom: 15px; padding: 15px; border: 2px solid #007cba; border-radius: 8px; background-color: white; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #005a87; }
+        #parameters { display: none; }
+        .parameter { margin-bottom: 10px; padding: 15px; border: 2px solid #007cba; border-radius: 8px; background-color: white; }
+        .parameter-group { display: none; }
+        .parameter-group.active { display: block; }
+        .pagination-controls { text-align: center; margin: 20px 0; }
+        .pagination-controls button { margin: 0 10px; }
+        #deployButton { display: none; }
+        .test-credentials-container { position: absolute; top: 80px; right: 20px; z-index: 10; }
+        .test-credentials-btn { background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .test-credentials-btn:hover { background: #218838; }
+        .aws-config-btn { background: #007cba; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; }
+        .aws-config-btn:hover { background: #005a87; }
+        .user-info-btn { background: #000000; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; }
+        .user-info-btn:hover { background: #333333; }
+        .popup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: none; }
+        .popup { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1001; min-width: 400px; }
+        .popup h3 { margin-top: 0; color: #003087; }
+        .popup-form-group { margin-bottom: 15px; }
+        .popup-form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .popup-form-group input, .popup-form-group select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .popup-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .save-btn { background: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .save-btn:hover { background: #218838; }
+        .clear-btn { background: #6c757d; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .clear-btn:hover { background: #5a6268; }
+        .close-btn { position: absolute; top: 10px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .close-btn:hover { color: #333; }
+        .test-btn { background: #000000; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+        .test-btn:hover { background: #333333; }
+        .custom-alert { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 20px; border-radius: 8px; color: white; font-weight: bold; z-index: 1000; min-width: 300px; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+        .alert-success { background: #28a745; }
+        .alert-error { background: #dc3545; }
+        .alert-warning { background: #fd7e14; }
+        .alert-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
+        .password-container { position: relative; }
+        .password-toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #666; }
+        .password-toggle:hover { color: #333; }
+        .service-catalog-btn { background: #fd7e14; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; }
+        .service-catalog-btn:hover { background: #e8590c; }
+        .sc-product-item { padding: 15px; margin: 10px 0; border: 2px solid #007cba; border-radius: 8px; cursor: pointer; background: white; transition: all 0.3s; }
+        .sc-product-item:hover { background: #f0f8ff; border-color: #005a87; }
+        .sc-product-item h4 { margin: 0 0 8px 0; color: #003087; }
+        .sc-product-item p { margin: 5px 0; color: #666; }
+        .sc-product-item small { color: #999; }
+        .sc-loading { text-align: center; padding: 20px; }
+        .sc-spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007cba; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .home-btn { background: #000000; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .home-btn:hover { background: #333333; }
+        .cancel-btn { background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .cancel-btn:hover { background: #c82333; }
+        .submit-btn { background: #28a745; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        .submit-btn:hover { background: #218838; }
+        .close-window-btn { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+        .close-window-btn:hover { background: #005a87; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-logo">
+            <img src="sbicon.jpeg" alt="Standard Bank" class="sb-logo-img">
+            Standard Bank
+        </div>
+        <div class="support-info">
+            Support: <a href="mailto:Sbg-DevOps-CloudEngineering@standardbank.co.za?subject=CloudInfra Support Request" style="color: rgba(255,255,255,0.9); text-decoration: underline;">Sbg-DevOps-CloudEngineering@standardbank.co.za</a>
+        </div>
+    </div>
+    
+    <div class="test-credentials-container">
+        <button type="button" onclick="openAwsConfig()" class="aws-config-btn">AWS Configuration</button>
+        <button type="button" onclick="openUserInfo()" class="user-info-btn">User Info</button>
+        <button type="button" onclick="openServiceCatalog()" class="service-catalog-btn">Service Catalog</button>
+    </div>
+    
+    <div class="main-content">
+        <h1 style="position: relative; z-index: 1; color: #333;">⚡ CloudInfra Template Deployer</h1>
+    
+    <div class="form-group">
+        <label>Deployment Mode:</label>
+        <select id="deploymentMode">
+            <option value="new">New Deployment</option>
+            <option value="update">Update Existing Stack</option>
+        </select>
+    </div>
+    
+    <div class="form-group" id="stackSearchGroup" style="display: none;">
+        <label>Search Existing Stack:</label>
+        <input type="text" id="stackSearchName" placeholder="Enter stack name to search">
+        <button type="button" onclick="searchStack()">Search Stack</button>
+    </div>
+    
+    <div class="form-group">
+        <label>Select Template:</label>
+        <select id="templateSelector">
+            <option value="certrotate/certrotate-lambda_1.0.2.yaml">CertRotate Lambda (Default)</option>
+            <option value="certrotate/certrotate-lambdalayer_1.0.2.yaml">CertRotate Lambda Layer</option>
+            <option value="access-keys/AccessKeysRotation.yml">Access Keys Rotation</option>
+            <option value="cloudinfra/cloudinfra-ecs-deployment.yaml">Cloudinfra</option>
+            <option value="custom">Custom Upload</option>
+        </select>
+    </div>
+    
+    <div class="form-group" id="customUpload" style="display: none;">
+        <label>Upload CloudFormation Template:</label>
+        <input type="file" id="templateFile" accept=".yaml,.yml,.json">
+    </div>
+    
+    <div id="parameters">
+        <h3>Template Parameters</h3>
+        <div id="parameterInputs"></div>
+        
+        <div class="pagination-controls">
+            <button id="prevButton" onclick="previousGroup()" style="display: none;">Previous</button>
+            <span id="pageInfo"></span>
+            <button id="nextButton" onclick="nextGroup()">Next</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Stack Name:</label>
+            <input type="text" id="stackName" required>
+        </div>
+        
+        <button id="deployButton" onclick="deployStack()">Deploy Stack</button>
+        
+        <!-- Hidden fields to store AWS config from popup -->
+        <input type="hidden" id="region">
+        <input type="hidden" id="accountId">
+        <input type="hidden" id="accessKeyId">
+        <input type="hidden" id="secretAccessKey">
+    </div>
+    
+        <div id="result"></div>
+    </div>
+    
+    <div class="footer">
+        <div class="footer-logo">
+            <img src="sbicon.jpeg" alt="Standard Bank" class="sb-logo-img">
+            Standard Bank
+        </div>
+        <div>Powered by CloudInfra</div>
+    </div>
+    
+    <div class="popup-overlay" id="awsConfigPopup">
+        <div class="popup">
+            <button type="button" onclick="closeAwsConfig()" class="close-btn">&times;</button>
+            <h3>AWS Configuration</h3>
+            <div class="popup-form-group">
+                <label>AWS Region:</label>
+                <select id="popupRegion">
+                    <option value="us-east-1">us-east-1</option>
+                    <option value="us-west-2">us-west-2</option>
+                    <option value="eu-west-1">eu-west-1</option>
+                    <option value="af-south-1">af-south-1</option>
+                    <option value="ap-southeast-1">ap-southeast-1</option>
+                </select>
+            </div>
+            <div class="popup-form-group">
+                <label>AWS Account ID:</label>
+                <input type="text" id="popupAccountId" placeholder="123456789012">
+            </div>
+            <div class="popup-form-group">
+                <label>AWS Access Key ID (Base64 encoded):</label>
+                <input type="text" id="popupAccessKeyId">
+            </div>
+            <div class="popup-form-group">
+                <label>AWS Secret Access Key (Base64 encoded):</label>
+                <input type="password" id="popupSecretAccessKey">
+            </div>
+            <div class="popup-buttons">
+                <button type="button" onclick="testCredentialsFromPopup()" class="test-btn">Test Credentials</button>
+                <button type="button" onclick="saveAwsConfig()" class="save-btn">Save</button>
+                <button type="button" onclick="clearAwsConfig()" class="clear-btn">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="userInfoPopup">
+        <div class="popup">
+            <button type="button" onclick="closeUserInfo()" class="close-btn">&times;</button>
+            <h3>User Information</h3>
+            <div class="popup-form-group">
+                <label>Email:</label>
+                <input type="email" id="userEmail" placeholder="user@example.com">
+            </div>
+            <div class="popup-form-group">
+                <label>Password:</label>
+                <div class="password-container">
+                    <input type="password" id="userPassword" placeholder="Enter password">
+                    <button type="button" onclick="togglePassword()" class="password-toggle">👁</button>
+                </div>
+            </div>
+            <div class="popup-buttons">
+                <button type="button" onclick="saveUserInfo()" class="save-btn">Save</button>
+                <button type="button" onclick="clearUserInfo()" class="clear-btn">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="serviceCatalogPopup">
+        <div class="popup" style="min-width: 600px; max-width: 800px;">
+            <button type="button" onclick="closeServiceCatalog()" class="close-btn">&times;</button>
+            <h3>Service Catalog</h3>
+            
+            <div id="scProductList">
+                <h4>Available Products</h4>
+                <div id="scProductsContainer"></div>
+            </div>
+            
+            <div id="scProductDetails" style="display: none;">
+                <h4 id="scProductName"></h4>
+                <div id="scParametersContainer"></div>
+                <div class="popup-buttons">
+                    <button type="button" onclick="goBackToProducts()" class="home-btn">Home</button>
+                    <button type="button" onclick="clearProductFields()" class="cancel-btn">Cancel</button>
+                    <button type="button" onclick="provisionProduct()" class="submit-btn">Submit</button>
+                </div>
+            </div>
+            
+            <div id="scProvisionStatus" style="display: none;">
+                <div id="scLoadingMessage" class="sc-loading">
+                    <div class="sc-spinner"></div>
+                    <p><strong>Please wait for the deployment to finish. Do not close the window.</strong></p>
+                </div>
+                <div id="scResultMessage" style="display: none;">
+                    <div id="scOutputs"></div>
+                    <button type="button" id="scCloseButton" onclick="closeServiceCatalogWithMessage()" class="close-window-btn" style="display: none;">Close Window</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Service Catalog functions inline below -->
+
+    <script>
+        let templatePath = '';
+        let parameterGroups = [];
+        let currentGroup = 0;
+        
+        function showAlert(message, type = 'error') {
+            const overlay = document.createElement('div');
+            overlay.className = 'alert-overlay';
+            
+            const alertBox = document.createElement('div');
+            alertBox.className = `custom-alert alert-${type}`;
+            alertBox.textContent = message;
+            
+            document.body.appendChild(overlay);
+            document.body.appendChild(alertBox);
+            
+            const closeAlert = () => {
+                document.body.removeChild(overlay);
+                document.body.removeChild(alertBox);
+            };
+            
+            overlay.onclick = closeAlert;
+            setTimeout(closeAlert, 4000);
+        }
+        
+        window.addEventListener('load', () => {
+            loadTemplate('certrotate/certrotate-lambda_1.0.2.yaml');
+            loadStoredData();
+        });
+        
+        function loadStoredData() {
+            // Load AWS config
+            const awsData = getStoredData('awsConfig');
+            if (awsData) {
+                document.getElementById('popupRegion').value = awsData.region || 'us-east-1';
+                document.getElementById('popupAccountId').value = awsData.accountId || '';
+                document.getElementById('popupAccessKeyId').value = awsData.accessKeyId || '';
+                document.getElementById('popupSecretAccessKey').value = awsData.secretAccessKey || '';
+                
+                // Also populate hidden fields
+                document.getElementById('region').value = awsData.region || 'us-east-1';
+                document.getElementById('accountId').value = awsData.accountId || '';
+                document.getElementById('accessKeyId').value = awsData.accessKeyId || '';
+                document.getElementById('secretAccessKey').value = awsData.secretAccessKey || '';
+            }
+            
+            // Load user info
+            const userData = getStoredData('userInfo');
+            if (userData) {
+                document.getElementById('userEmail').value = userData.email || '';
+                document.getElementById('userPassword').value = userData.password || '';
+            }
+        }
+        
+        function storeData(key, data) {
+            const item = {
+                data: data,
+                timestamp: Date.now(),
+                expiry: 8 * 60 * 60 * 1000 // 8 hours in milliseconds
+            };
+            localStorage.setItem(key, JSON.stringify(item));
+        }
+        
+        function getStoredData(key) {
+            const item = localStorage.getItem(key);
+            if (!item) return null;
+            
+            try {
+                const parsed = JSON.parse(item);
+                const now = Date.now();
+                
+                if (now - parsed.timestamp > parsed.expiry) {
+                    localStorage.removeItem(key);
+                    return null;
+                }
+                
+                return parsed.data;
+            } catch (e) {
+                localStorage.removeItem(key);
+                return null;
+            }
+        }
+        
+        document.getElementById('deploymentMode').addEventListener('change', (e) => {
+            const mode = e.target.value;
+            const stackSearchGroup = document.getElementById('stackSearchGroup');
+            const deployButton = document.getElementById('deployButton');
+            
+            if (mode === 'update') {
+                stackSearchGroup.style.display = 'block';
+                deployButton.textContent = 'Update Stack';
+            } else {
+                stackSearchGroup.style.display = 'none';
+                deployButton.textContent = 'Deploy Stack';
+                document.getElementById('parameters').style.display = 'none';
+            }
+        });
+        
+        document.getElementById('templateSelector').addEventListener('change', (e) => {
+            const value = e.target.value;
+            if (value === 'custom') {
+                document.getElementById('customUpload').style.display = 'block';
+                document.getElementById('parameters').style.display = 'none';
+            } else {
+                document.getElementById('customUpload').style.display = 'none';
+                loadTemplate(value);
+            }
+        });
+        
+        async function searchStack() {
+            const stackName = document.getElementById('stackSearchName').value;
+            const region = document.getElementById('region').value;
+            const accessKeyId = document.getElementById('accessKeyId').value;
+            const secretAccessKey = document.getElementById('secretAccessKey').value;
+            
+            if (!stackName || !accessKeyId || !secretAccessKey) {
+                showAlert('Please provide stack name and AWS credentials', 'warning');
+                return;
+            }
+            
+            try {
+                let decodedAccessKey, decodedSecretKey;
+                try {
+                    decodedAccessKey = atob(accessKeyId);
+                    decodedSecretKey = atob(secretAccessKey);
+                    
+                    if (!decodedAccessKey.startsWith('AKIA') || decodedAccessKey.length !== 20) {
+                        alert('Invalid Access Key format after decoding');
+                        return;
+                    }
+                    if (decodedSecretKey.length !== 40) {
+                        alert('Invalid Secret Key length after decoding');
+                        return;
+                    }
+                } catch (e) {
+                    alert('Invalid base64 encoding in credentials');
+                    return;
+                }
+                
+                const response = await fetch('/search-stack', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        stackName,
+                        region,
+                        accessKeyId: decodedAccessKey,
+                        secretAccessKey: decodedSecretKey
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('stackName').value = stackName;
+                    loadTemplateWithExistingParams(document.getElementById('templateSelector').value, data.parameters);
+                    showAlert('Stack found! Parameters loaded from existing deployment.', 'success');
+                } else {
+                    showAlert('Error: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error searching stack: ' + error.message, 'error');
+            }
+        }
+        
+        function openAwsConfig() {
+            document.getElementById('awsConfigPopup').style.display = 'block';
+        }
+        
+        function closeAwsConfig() {
+            document.getElementById('awsConfigPopup').style.display = 'none';
+        }
+        
+        function saveAwsConfig() {
+            const region = document.getElementById('popupRegion').value;
+            const accountId = document.getElementById('popupAccountId').value;
+            const accessKeyId = document.getElementById('popupAccessKeyId').value;
+            const secretAccessKey = document.getElementById('popupSecretAccessKey').value;
+            
+            // Save to localStorage
+            storeData('awsConfig', {
+                region: region,
+                accountId: accountId,
+                accessKeyId: accessKeyId,
+                secretAccessKey: secretAccessKey
+            });
+            
+            // Save to main form fields
+            document.getElementById('region').value = region;
+            document.getElementById('accountId').value = accountId;
+            document.getElementById('accessKeyId').value = accessKeyId;
+            document.getElementById('secretAccessKey').value = secretAccessKey;
+            
+            // Close popup
+            closeAwsConfig();
+            showAlert('AWS configuration saved successfully!', 'success');
+        }
+        
+        function clearAwsConfig() {
+            document.getElementById('popupRegion').value = 'us-east-1';
+            document.getElementById('popupAccountId').value = '';
+            document.getElementById('popupAccessKeyId').value = '';
+            document.getElementById('popupSecretAccessKey').value = '';
+            
+            // Clear from localStorage
+            localStorage.removeItem('awsConfig');
+            
+            // Clear hidden fields
+            document.getElementById('region').value = '';
+            document.getElementById('accountId').value = '';
+            document.getElementById('accessKeyId').value = '';
+            document.getElementById('secretAccessKey').value = '';
+        }
+        
+        async function testCredentialsFromPopup() {
+            const region = document.getElementById('popupRegion').value;
+            const accessKeyId = document.getElementById('popupAccessKeyId').value;
+            const secretAccessKey = document.getElementById('popupSecretAccessKey').value;
+            
+            if (!accessKeyId || !secretAccessKey) {
+                showAlert('Please enter AWS credentials first', 'warning');
+                return;
+            }
+            
+            try {
+                let decodedAccessKey, decodedSecretKey;
+                try {
+                    decodedAccessKey = atob(accessKeyId);
+                    decodedSecretKey = atob(secretAccessKey);
+                } catch (e) {
+                    showAlert('Invalid base64 encoding in credentials', 'error');
+                    return;
+                }
+                
+                const response = await fetch('/test-credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        region,
+                        accessKeyId: decodedAccessKey,
+                        secretAccessKey: decodedSecretKey
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    showAlert(`Credentials valid! Account: ${data.account}, User: ${data.user}`, 'success');
+                } else {
+                    showAlert('Credentials invalid: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error testing credentials: ' + error.message, 'error');
+            }
+        }
+        
+        // Close popup when clicking overlay
+        document.getElementById('awsConfigPopup').onclick = function(e) {
+            if (e.target === this) {
+                closeAwsConfig();
+            }
+        }
+        
+        document.getElementById('userInfoPopup').onclick = function(e) {
+            if (e.target === this) {
+                closeUserInfo();
+            }
+        }
+        
+        function openUserInfo() {
+            document.getElementById('userInfoPopup').style.display = 'block';
+        }
+        
+        function closeUserInfo() {
+            document.getElementById('userInfoPopup').style.display = 'none';
+        }
+        
+        function togglePassword() {
+            const passwordField = document.getElementById('userPassword');
+            const toggleBtn = document.querySelector('.password-toggle');
+            
+            if (passwordField.type === 'password') {
+                passwordField.type = 'text';
+                toggleBtn.textContent = '🙈';
+            } else {
+                passwordField.type = 'password';
+                toggleBtn.textContent = '👁';
+            }
+        }
+        
+        function saveUserInfo() {
+            const email = document.getElementById('userEmail').value;
+            const password = document.getElementById('userPassword').value;
+            
+            if (!email || !password) {
+                showAlert('Please enter both email and password', 'warning');
+                return;
+            }
+            
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                showAlert('Please enter a valid email address', 'error');
+                return;
+            }
+            
+            // Save to localStorage
+            storeData('userInfo', {
+                email: email,
+                password: password
+            });
+            
+            closeUserInfo();
+            showAlert('User information saved successfully!', 'success');
+        }
+        
+        function clearUserInfo() {
+            document.getElementById('userEmail').value = '';
+            document.getElementById('userPassword').value = '';
+            
+            // Clear from localStorage
+            localStorage.removeItem('userInfo');
+        }
+        
+        async function testCredentials() {
+            const region = document.getElementById('region').value;
+            const accessKeyId = document.getElementById('accessKeyId').value;
+            const secretAccessKey = document.getElementById('secretAccessKey').value;
+            
+            if (!accessKeyId || !secretAccessKey) {
+                alert('Please enter AWS credentials first');
+                return;
+            }
+            
+            try {
+                let decodedAccessKey, decodedSecretKey;
+                try {
+                    decodedAccessKey = atob(accessKeyId);
+                    decodedSecretKey = atob(secretAccessKey);
+                } catch (e) {
+                    alert('Invalid base64 encoding in credentials');
+                    return;
+                }
+                
+                const response = await fetch('/test-credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        region,
+                        accessKeyId: decodedAccessKey,
+                        secretAccessKey: decodedSecretKey
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    showAlert(`Credentials valid! Account: ${data.account}, User: ${data.user}`, 'success');
+                } else {
+                    showAlert('Credentials invalid: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Error testing credentials: ' + error.message, 'error');
+            }
+        }
+        
+        async function loadTemplateWithExistingParams(templateName, existingParams) {
+            try {
+                const response = await fetch('/load-template', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ templateName })
+                });
+                
+                const data = await response.json();
+                templatePath = templateName;
+                
+                displayParametersWithExisting(data.parameters, existingParams);
+                document.getElementById('parameters').style.display = 'block';
+            } catch (error) {
+                alert('Error loading template: ' + error.message);
+            }
+        }
+        
+        async function loadTemplate(templateName) {
+            try {
+                const response = await fetch('/load-template', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ templateName })
+                });
+                
+                const data = await response.json();
+                templatePath = templateName;
+                
+                displayParameters(data.parameters);
+                document.getElementById('parameters').style.display = 'block';
+            } catch (error) {
+                alert('Error loading template: ' + error.message);
+            }
+        }
+        
+        document.getElementById('templateFile').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('template', file);
+            
+            try {
+                const response = await fetch('/parse-template', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                templatePath = file.name;
+                
+                displayParameters(data.parameters);
+                document.getElementById('parameters').style.display = 'block';
+            } catch (error) {
+                alert('Error parsing template: ' + error.message);
+            }
+        });
+
+        // this function is to get all stack parameter existing values
+        // compare the stack template parameters with the new template parameters
+        // if the parameters are the same, prefill the input fields on the browser
+        //the new template default value take precedence
+        function displayParametersWithExisting(parameters, existingParams) {
+            const container = document.getElementById('parameterInputs');
+            container.innerHTML = '';
+            
+            const paramEntries = Object.entries(parameters);
+            
+            // If no parameters, show deploy button immediately
+            if (paramEntries.length === 0) {
+                parameterGroups = [];
+                currentGroup = 0;
+                document.getElementById('deployButton').style.display = 'inline-block';
+                document.getElementById('prevButton').style.display = 'none';
+                document.getElementById('nextButton').style.display = 'none';
+                document.getElementById('pageInfo').textContent = 'No parameters required';
+                return;
+            }
+            
+            parameterGroups = [];
+            
+            for (let i = 0; i < paramEntries.length; i += 3) {
+                parameterGroups.push(paramEntries.slice(i, i + 3));
+            }
+            
+            parameterGroups.forEach((group, groupIndex) => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = `parameter-group ${groupIndex === 0 ? 'active' : ''}`;
+                groupDiv.id = `group-${groupIndex}`;
+                
+                group.forEach(([key, param]) => {
+                    const div = document.createElement('div');
+                    div.className = 'parameter';
+                    const description = param && param.Description ? param.Description : '';
+                    const existingValue = existingParams[key] || '';
+                    const defaultValue = (param && param.Default) ? param.Default : existingValue;
+                    
+                    if (param && param.AllowedValues && Array.isArray(param.AllowedValues)) {
+                        const options = param.AllowedValues.map(value => 
+                            `<option value="${value}" ${value === defaultValue ? 'selected' : ''}>${value}</option>`
+                        ).join('');
+                        div.innerHTML = `
+                            <label>${key}:</label>
+                            <select id="param-${key}" required>
+                                ${!defaultValue ? '<option value="">Select...</option>' : ''}
+                                ${options}
+                            </select>
+                        `;
+                    } else {
+                        div.innerHTML = `
+                            <label>${key}:</label>
+                            <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required>
+                        `;
+                    }
+                    groupDiv.appendChild(div);
+                });
+                
+                container.appendChild(groupDiv);
+            });
+            
+            currentGroup = 0;
+            updatePagination();
+        }
+        //display parameters for the template being selected
+        function displayParameters(parameters) {
+            const container = document.getElementById('parameterInputs');
+            container.innerHTML = '';
+            
+            const paramEntries = Object.entries(parameters);
+            
+            // If no parameters, show deploy button immediately
+            if (paramEntries.length === 0) {
+                parameterGroups = [];
+                currentGroup = 0;
+                document.getElementById('deployButton').style.display = 'inline-block';
+                document.getElementById('prevButton').style.display = 'none';
+                document.getElementById('nextButton').style.display = 'none';
+                document.getElementById('pageInfo').textContent = 'No parameters required';
+                return;
+            }
+            
+            parameterGroups = [];
+            
+            for (let i = 0; i < paramEntries.length; i += 3) {
+                parameterGroups.push(paramEntries.slice(i, i + 3));
+            }
+            
+            parameterGroups.forEach((group, groupIndex) => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = `parameter-group ${groupIndex === 0 ? 'active' : ''}`;
+                groupDiv.id = `group-${groupIndex}`;
+                
+                group.forEach(([key, param]) => {
+                    const div = document.createElement('div');
+                    div.className = 'parameter';
+                    const description = param && param.Description ? param.Description : '';
+                    const defaultValue = param && param.Default ? param.Default : '';
+                    
+                    if (param && param.AllowedValues && Array.isArray(param.AllowedValues)) {
+                        const options = param.AllowedValues.map(value => 
+                            `<option value="${value}" ${value === defaultValue ? 'selected' : ''}>${value}</option>`
+                        ).join('');
+                        div.innerHTML = `
+                            <label>${key}:</label>
+                            <select id="param-${key}" required>
+                                ${!defaultValue ? '<option value="">Select...</option>' : ''}
+                                ${options}
+                            </select>
+                        `;
+                    } else {
+                        div.innerHTML = `
+                            <label>${key}:</label>
+                            <input type="text" id="param-${key}" placeholder="${description}" ${defaultValue ? `value="${defaultValue}"` : ''} required>
+                        `;
+                    }
+                    groupDiv.appendChild(div);
+                });
+                
+                container.appendChild(groupDiv);
+            });
+            
+            currentGroup = 0;
+            updatePagination();
+        }
+        //for controlling all the buttons on the browser
+        function updatePagination() {
+            const prevButton = document.getElementById('prevButton');
+            const nextButton = document.getElementById('nextButton');
+            const pageInfo = document.getElementById('pageInfo');
+            const deployButton = document.getElementById('deployButton');
+            
+            prevButton.style.display = currentGroup > 0 ? 'inline-block' : 'none';
+            
+            if (currentGroup < parameterGroups.length - 1) {
+                nextButton.style.display = 'inline-block';
+                deployButton.style.display = 'none';
+            } else {
+                nextButton.style.display = 'none';
+                deployButton.style.display = 'inline-block';
+            }
+            
+            pageInfo.textContent = `Step ${currentGroup + 1} of ${parameterGroups.length}`;
+        }
+        
+        function nextGroup() {
+            if (!validateCurrentGroup()) {
+                showAlert('Please fill in all required fields before proceeding.', 'warning');
+                return;
+            }
+            
+            if (currentGroup < parameterGroups.length - 1) {
+                document.getElementById(`group-${currentGroup}`).classList.remove('active');
+                currentGroup++;
+                document.getElementById(`group-${currentGroup}`).classList.add('active');
+                updatePagination();
+            }
+        }
+        
+        function previousGroup() {
+            if (currentGroup > 0) {
+                document.getElementById(`group-${currentGroup}`).classList.remove('active');
+                currentGroup--;
+                document.getElementById(`group-${currentGroup}`).classList.add('active');
+                updatePagination();
+            }
+        }
+        //validate that the input field is not empty
+        function validateCurrentGroup() {
+            const currentGroupDiv = document.getElementById(`group-${currentGroup}`);
+            const inputs = currentGroupDiv.querySelectorAll('input[required], select[required]');
+            
+            for (let input of inputs) {
+                if (!input.value.trim()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        //this function is about deploying the template to cloudformation with all required field values provided
+        async function deployStack() {
+            const stackName = document.getElementById('stackName').value;
+            const region = document.getElementById('region').value;
+            const accountId = document.getElementById('accountId').value;
+            const accessKeyId = document.getElementById('accessKeyId').value;
+            const secretAccessKey = document.getElementById('secretAccessKey').value;
+            
+            if (!stackName || !accessKeyId || !secretAccessKey) {
+                showAlert('Please configure AWS credentials and provide stack name', 'warning');
+                return;
+            }
+            
+            // Check user info is provided
+            const userData = getStoredData('userInfo');
+            if (!userData || !userData.email || !userData.password) {
+                showAlert('Please provide user information (email and password) before deploying', 'warning');
+                return;
+            }
+            
+            // Only validate parameters if there are any
+            if (parameterGroups.length > 0) {
+                const allInputs = document.querySelectorAll('[id^="param-"]');
+                for (let input of allInputs) {
+                    if (!input.value.trim()) {
+                        showAlert('Please fill in all parameters before deploying.', 'warning');
+                        return;
+                    }
+                }
+            }
+            
+            const parameters = {};
+            document.querySelectorAll('[id^="param-"]').forEach(input => {
+                const key = input.id.replace('param-', '');
+                parameters[key] = input.value;
+            });
+            
+            const deploymentMode = document.getElementById('deploymentMode').value;
+            const endpoint = deploymentMode === 'update' ? '/update-stack' : '/deploy';
+            
+            try {
+                let decodedAccessKey, decodedSecretKey;
+                try {
+                    decodedAccessKey = atob(accessKeyId);
+                    decodedSecretKey = atob(secretAccessKey);
+                    
+                    if (!decodedAccessKey.startsWith('AKIA') || decodedAccessKey.length !== 20) {
+                        alert('Invalid Access Key format after decoding');
+                        return;
+                    }
+                    if (decodedSecretKey.length !== 40) {
+                        alert('Invalid Secret Key length after decoding');
+                        return;
+                    }
+                } catch (e) {
+                    alert('Invalid base64 encoding in credentials');
+                    return;
+                }
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        templatePath,
+                        parameters,
+                        stackName,
+                        region,
+                        accountId,
+                        accessKeyId: decodedAccessKey,
+                        secretAccessKey: decodedSecretKey,
+                        userEmail: userData.email
+                    })
+                });
+                
+                const result = await response.json();
+                document.getElementById('result').innerHTML = response.ok 
+                    ? `<p style="color: green;">Stack ${deploymentMode === 'update' ? 'updated' : 'deployed'} successfully! Stack ID: ${result.stackId}</p>`
+                    : `<p style="color: red;">Error: ${result.error}</p>`;
+            } catch (error) {
+                document.getElementById('result').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CloudForge</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; position: relative; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; }
+        .header { background: #003087; color: white; padding: 15px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header-logo { display: flex; align-items: center; font-size: 24px; font-weight: bold; }
+        .sb-logo { width: 40px; height: 40px; margin-right: 12px; background: white; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #003087; font-size: 16px; }
+        .support-info { font-size: 14px; color: rgba(255,255,255,0.9); }
+        .main-content { flex: 1; max-width: 800px; margin: 0 auto; padding: 20px; width: 100%; box-sizing: border-box; }
+        .footer { background: #003087; color: white; text-align: center; padding: 20px; margin-top: auto; }
+        .footer-logo { display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+        .footer .sb-logo { width: 30px; height: 30px; margin-right: 8px; font-size: 14px; }
+        .main-content::before { content: '⚡ CloudForge'; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 150px; color: rgba(0, 0, 0, 0.05); z-index: 0; pointer-events: none; font-weight: bold; white-space: nowrap; }
+        .form-group { margin-bottom: 15px; padding: 15px; border: 2px solid #007cba; border-radius: 8px; background-color: white; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #005a87; }
+        #parameters { display: none; }
+        .parameter { margin-bottom: 10px; padding: 15px; border: 2px solid #007cba; border-radius: 8px; background-color: white; }
+        .parameter-group { display: none; }
+        .parameter-group.active { display: block; }
+        .pagination-controls { text-align: center; margin: 20px 0; }
+        .pagination-controls button { margin: 0 10px; }
+        #deployButton { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-logo">
+            <div class="sb-logo">SB</div>
+            Standard Bank
+        </div>
+        <div class="support-info">
+            Support: Sbg-DevOps-CloudEngineering@standardbank.co.za
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <h1 style="position: relative; z-index: 1; color: #333;">⚡ CloudForge Template Deployer</h1>
+    
+    <div class="form-group">
+        <label>Select Template:</label>
+        <select id="templateSelector">
+            <option value="certrotate-lambda_1.0.2.yaml">CertRotate Lambda (Default)</option>
+            <option value="certrotate-lambdalayer_1.0.2.yaml">CertRotate Lambda Layer</option>
+            <option value="custom">Custom Upload</option>
+        </select>
+    </div>
+    
+    <div class="form-group" id="customUpload" style="display: none;">
+        <label>Upload CloudFormation Template:</label>
+        <input type="file" id="templateFile" accept=".yaml,.yml,.json">
+    </div>
+    
+    <div id="parameters">
+        <h3>Template Parameters</h3>
+        <div id="parameterInputs"></div>
+        
+        <div class="pagination-controls">
+            <button id="prevButton" onclick="previousGroup()" style="display: none;">Previous</button>
+            <span id="pageInfo"></span>
+            <button id="nextButton" onclick="nextGroup()">Next</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Stack Name:</label>
+            <input type="text" id="stackName" required>
+        </div>
+        
+        <div class="form-group">
+            <label>AWS Region:</label>
+            <select id="region">
+                <option value="us-east-1">us-east-1</option>
+                <option value="us-west-2">us-west-2</option>
+                <option value="eu-west-1">eu-west-1</option>
+                <option value="af-south-1">af-south-1</option>
+                <option value="ap-southeast-1">ap-southeast-1</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>AWS Account ID:</label>
+            <input type="text" id="accountId" placeholder="123456789012">
+        </div>
+        
+        <div class="form-group">
+            <label>AWS Access Key ID:</label>
+            <input type="text" id="accessKeyId" required>
+        </div>
+        
+        <div class="form-group">
+            <label>AWS Secret Access Key:</label>
+            <input type="password" id="secretAccessKey" required>
+        </div>
+        
+        <button id="deployButton" onclick="deployStack()">Deploy Stack</button>
+    </div>
+    
+        <div id="result"></div>
+    </div>
+    
+    <div class="footer">
+        <div class="footer-logo">
+            <div class="sb-logo">SB</div>
+            Standard Bank
+        </div>
+        <div>Powered by CloudForge</div>
+    </div>
+
+    <script>
+        let templatePath = '';
+        let parameterGroups = [];
+        let currentGroup = 0;
+        
+        // Load default template on page load
+        window.addEventListener('load', () => {
+            loadTemplate('certrotate-lambda_1.0.2.yaml');
+        });
+        
+        document.getElementById('templateSelector').addEventListener('change', (e) => {
+            const value = e.target.value;
+            if (value === 'custom') {
+                document.getElementById('customUpload').style.display = 'block';
+                document.getElementById('parameters').style.display = 'none';
+            } else {
+                document.getElementById('customUpload').style.display = 'none';
+                loadTemplate(value);
+            }
+        });
+        
+        async function loadTemplate(templateName) {
+            try {
+                const response = await fetch('/load-template', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ templateName })
+                });
+                
+                const data = await response.json();
+                templatePath = templateName;
+                
+                displayParameters(data.parameters);
+                document.getElementById('parameters').style.display = 'block';
+            } catch (error) {
+                alert('Error loading template: ' + error.message);
+            }
+        }
+        
+        document.getElementById('templateFile').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('template', file);
+            
+            try {
+                const response = await fetch('/parse-template', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                templatePath = file.name;
+                
+                displayParameters(data.parameters);
+                document.getElementById('parameters').style.display = 'block';
+            } catch (error) {
+                alert('Error parsing template: ' + error.message);
+            }
+        });
+        //the function for showing parameters on a template 
+        function displayParameters(parameters) {
+            const container = document.getElementById('parameterInputs');
+            container.innerHTML = '';
+            
+            const paramEntries = Object.entries(parameters);
+            parameterGroups = [];
+            
+            // Group parameters into sets of 3
+            for (let i = 0; i < paramEntries.length; i += 3) {
+                parameterGroups.push(paramEntries.slice(i, i + 3));
+            }
+            
+            // Create parameter groups
+            parameterGroups.forEach((group, groupIndex) => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = `parameter-group ${groupIndex === 0 ? 'active' : ''}`;
+                groupDiv.id = `group-${groupIndex}`;
+                
+                group.forEach(([key, param]) => {
+                    const div = document.createElement('div');
+                    div.className = 'parameter';
+                    const description = param && param.Description ? param.Description : '';
+                    const defaultValue = param && param.Default ? param.Default : '';
+                    
+                    if (param && param.AllowedValues && Array.isArray(param.AllowedValues)) {
+                        const options = param.AllowedValues.map(value => 
+                            `<option value="${value}" ${value === defaultValue ? 'selected' : ''}>${value}</option>`
+                        ).join('');
+                        div.innerHTML = `
+                            <label>${key}:</label>
+                            <select id="param-${key}" required>
+                                ${!defaultValue ? '<option value="">Select...</option>' : ''}
+                                ${options}
+                            </select>
+                        `;
+                    } else {
+                        div.innerHTML = `
+                            <label>${key}:</label>
+                            <input type="text" id="param-${key}" placeholder="${description}" ${defaultValue ? `value="${defaultValue}"` : ''} required>
+                        `;
+                    }
+                    groupDiv.appendChild(div);
+                });
+                
+                container.appendChild(groupDiv);
+            });
+            
+            currentGroup = 0;
+            updatePagination();
+        }
+        //the function for controlling the pages of parameter inputs using buttons
+        function updatePagination() {
+            const prevButton = document.getElementById('prevButton');
+            const nextButton = document.getElementById('nextButton');
+            const pageInfo = document.getElementById('pageInfo');
+            const deployButton = document.getElementById('deployButton');
+            
+            prevButton.style.display = currentGroup > 0 ? 'inline-block' : 'none';
+            
+            if (currentGroup < parameterGroups.length - 1) {
+                nextButton.style.display = 'inline-block';
+                deployButton.style.display = 'none';
+            } else {
+                nextButton.style.display = 'none';
+                deployButton.style.display = 'inline-block';
+            }
+            
+            pageInfo.textContent = `Step ${currentGroup + 1} of ${parameterGroups.length}`;
+        }
+        //the function for ensuring that a pop-up alert appears
+        function nextGroup() {
+            if (!validateCurrentGroup()) {
+                alert('Please fill in all required fields before proceeding.');
+                return;
+            }
+            
+            if (currentGroup < parameterGroups.length - 1) {
+                document.getElementById(`group-${currentGroup}`).classList.remove('active');
+                currentGroup++;
+                document.getElementById(`group-${currentGroup}`).classList.add('active');
+                updatePagination();
+            }
+        }
+        //this function ensures that a user can go back and still see the info they did input
+        function previousGroup() {
+            if (currentGroup > 0) {
+                document.getElementById(`group-${currentGroup}`).classList.remove('active');
+                currentGroup--;
+                document.getElementById(`group-${currentGroup}`).classList.add('active');
+                updatePagination();
+            }
+        }
+        //the function to ensure that required fields are not empty
+        function validateCurrentGroup() {
+            const currentGroupDiv = document.getElementById(`group-${currentGroup}`);
+            const inputs = currentGroupDiv.querySelectorAll('input[required], select[required]');
+            
+            for (let input of inputs) {
+                if (!input.value.trim()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        // this function gets triggered when deploystack button is clicked
+        //checks if all fields are not empty for template in use
+        //then deploys to the specified aws account with the provided credentials
+        async function deployStack() {
+            // Validate all parameters are filled
+            const allInputs = document.querySelectorAll('[id^="param-"]');
+            for (let input of allInputs) {
+                if (!input.value.trim()) {
+                    alert('Please fill in all parameters before deploying.');
+                    return;
+                }
+            }
+            
+            const stackName = document.getElementById('stackName').value;
+            const region = document.getElementById('region').value;
+            const accountId = document.getElementById('accountId').value;
+            const accessKeyId = document.getElementById('accessKeyId').value;
+            const secretAccessKey = document.getElementById('secretAccessKey').value;
+            
+            if (!stackName || !accessKeyId || !secretAccessKey) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            const parameters = {};
+            document.querySelectorAll('[id^="param-"]').forEach(input => {
+                const key = input.id.replace('param-', '');
+                parameters[key] = input.value;
+            });
+            
+            try {
+                const response = await fetch('/deploy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        templatePath,
+                        parameters,
+                        stackName,
+                        region,
+                        accountId,
+                        accessKeyId,
+                        secretAccessKey
+                    })
+                });
+                
+                const result = await response.json();
+                document.getElementById('result').innerHTML = response.ok 
+                    ? `<p style="color: green;">Stack deployed successfully! Stack ID: ${result.stackId}</p>`
+                    : `<p style="color: red;">Error: ${result.error}</p>`;
+            } catch (error) {
+                document.getElementById('result').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
