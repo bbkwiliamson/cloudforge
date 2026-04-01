@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CloudForge - Login</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: url('bolt7.jpeg') center center fixed; background-size: cover; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-container { background: linear-gradient(135deg, rgba(0, 48, 135, 0.4) 0%, rgba(30, 90, 158, 0.4) 50%, rgba(212, 175, 55, 0.4) 100%); padding: 40px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); max-width: 400px; width: 100%; backdrop-filter: blur(10px); }
+        .logo-section { text-align: center; margin-bottom: 30px; }
+        .sb-logo-img { width: 60px; height: 60px; margin-bottom: 15px; border-radius: 8px; }
+        .login-title { color: #D4AF37; font-size: 28px; font-weight: bold; margin: 0; }
+        .login-subtitle { color: #666; font-size: 14px; margin-top: 5px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: bold; color: white; }
+        .form-group input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        .form-group input:focus { outline: none; border-color: #007cba; }
+        .password-container { position: relative; }
+        .password-toggle { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #666; font-size: 18px; }
+        .password-toggle:hover { color: #333; }
+        .login-btn { width: 100%; background: #007cba; color: white; padding: 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        .login-btn:hover { background: #005a87; }
+        .error-message { background: #dc3545; color: white; padding: 12px; border-radius: 6px; margin-bottom: 20px; display: none; text-align: center; }
+        .footer-text { text-align: center; margin-top: 20px; color: white; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo-section">
+            <img src="sbicon.jpeg" alt="Standard Bank" class="sb-logo-img">
+            <h1 class="login-title">⚡ CloudForge</h1>
+        </div>
+        
+        <div id="errorMessage" class="error-message"></div>
+        
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label>Email:</label>
+                <input type="email" id="email" placeholder="user@standardbank.co.za" required autocomplete="off">
+            </div>
+            
+            <div class="form-group">
+                <label>Password:</label>
+                <div class="password-container">
+                    <input type="password" id="password" placeholder="Enter your password" required autocomplete="off">
+                    <button type="button" onclick="togglePassword()" class="password-toggle">👁</button>
+                </div>
+            </div>
+            
+            <button type="submit" class="login-btn">Login</button>
+        </form>
+        
+        <div class="footer-text">
+            Support: <a href="mailto:Sbg-DevOps-CloudEngineering@standardbank.co.za" style="color: white;">Sbg-DevOps-CloudEngineering@standardbank.co.za</a>
+        </div>
+    </div>
+    
+    <script>
+        function togglePassword() {
+            const passwordField = document.getElementById('password');
+            const toggleBtn = document.querySelector('.password-toggle');
+            
+            if (passwordField.type === 'password') {
+                passwordField.type = 'text';
+                toggleBtn.textContent = '🙈';
+            } else {
+                passwordField.type = 'password';
+                toggleBtn.textContent = '👁';
+            }
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 4000);
+        }
+        
+        function handleLogin(event) {
+            event.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.querySelector('.login-btn');
+            
+            // Disable button and show loading
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Authenticating...';
+            
+            // Call LDAP authentication endpoint
+            fetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: email, password: password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Store user info in localStorage with 8-hour expiry
+                    const userData = {
+                        data: { 
+                            email: data.email, 
+                            displayName: data.displayName 
+                        },
+                        timestamp: Date.now(),
+                        expiry: 8 * 60 * 60 * 1000
+                    };
+                    
+                    localStorage.setItem('userInfo', JSON.stringify(userData));
+                    localStorage.setItem('isLoggedIn', 'true');
+                    
+                    // Redirect to main application
+                    window.location.href = 'index.html';
+                } else {
+                    showError(data.error || 'Authentication failed');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = 'Login';
+                }
+            })
+            .catch(error => {
+                showError('Authentication failed. Please check your credentials.');
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
+            });
+        }
+        
+        // Check if already logged in
+        window.addEventListener('load', () => {
+            const isLoggedIn = localStorage.getItem('isLoggedIn');
+            const userInfo = localStorage.getItem('userInfo');
+            
+            if (isLoggedIn === 'true' && userInfo) {
+                try {
+                    const parsed = JSON.parse(userInfo);
+                    const now = Date.now();
+                    
+                    // Check if session is still valid
+                    if (now - parsed.timestamp < parsed.expiry) {
+                        window.location.href = 'index.html';
+                    } else {
+                        // Session expired, clear storage
+                        localStorage.removeItem('isLoggedIn');
+                        localStorage.removeItem('userInfo');
+                    }
+                } catch (e) {
+                    localStorage.removeItem('isLoggedIn');
+                    localStorage.removeItem('userInfo');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
