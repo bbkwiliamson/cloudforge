@@ -5,10 +5,4 @@
 
 # A list of people managing the UI below
 
-Brain.Bapela@standardbank.co.za
-Nkululeko.Selepe@standardbank.co.za
-Lebogang.Mafora@standardbank.co.za
-Marlyse.DeBruin@standardbank.co.za
-Nompumelelo.Hlatshwayo@standardbank.co.za
-Bruce.Reeler@standardbank.co.za
-Lesego.Kekana2@standardbank.co.za
+bbkwiliamson.ovi@gmail.com
