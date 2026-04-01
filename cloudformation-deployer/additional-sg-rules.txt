@@ -1,0 +1,10 @@
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.152.161.12/32
+          Description: Specific VPN IP Access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.152.161.12/32
+          Description: Specific VPN HTTPS Access

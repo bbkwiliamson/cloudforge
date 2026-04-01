@@ -1,0 +1,14 @@
+# CloudForge Template Authorized Users
+# Add email addresses (one per line) of users authorized to access CloudForge template
+# Lines starting with # are comments and will be ignored
+
+
+# A list of people managing the UI below
+
+Brain.Bapela@standardbank.co.za
+Nkululeko.Selepe@standardbank.co.za
+Lebogang.Mafora@standardbank.co.za
+Marlyse.DeBruin@standardbank.co.za
+Nompumelelo.Hlatshwayo@standardbank.co.za
+Bruce.Reeler@standardbank.co.za
+Lesego.Kekana2@standardbank.co.za

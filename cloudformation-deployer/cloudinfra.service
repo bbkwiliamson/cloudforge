@@ -1,0 +1,15 @@
+[Unit]
+Description=CloudForge Template Deployer
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/BBK-CDK/cloudformation-deployer
+Environment=PATH=/usr/bin:/usr/local/bin
+ExecStart=/usr/bin/python3 server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
