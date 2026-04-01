@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class ITSMIntegration:
     def __init__(self):
-        self.base_url = "https://itsmweb.standardbank.co.za:2030/baocdp/rest"
+        self.base_url = "https://itsmweb.{}bank.co.za:{port}/baocdp/rest"
         self.session = requests.Session()
         self.session.verify = True  # SSL verification
         self._authenticated = False
@@ -129,7 +129,7 @@ class ITSMIntegration:
             }
             
             # Make API call to create change request
-            create_url = "https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:CreateChange/execute"
+            create_url = "https://itsmweb.{}bank.co.za:{port}/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:CreateChange/execute"
             
             headers = {
                 'Content-Type': 'application/json',
@@ -233,7 +233,7 @@ class ITSMIntegration:
             logger.info(f"Request body parameters count: {len(request_body['inputParameters'])}")
             
             # Make API call to update work info
-            update_url = "https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:WorkUpdate/execute?mode=sync"
+            update_url = "https://itsmweb.{}bank.co.za:{port}/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:WorkUpdate/execute?mode=sync"
             
             headers = {
                 'Content-Type': 'application/json',
@@ -319,7 +319,7 @@ class ITSMIntegration:
             }
             
             # Make API call to close change request
-            close_url = "https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:CloseChange/execute?mode=sync"
+            close_url = "https://itsmweb.{}bank.co.za:{port}/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:CloseChange/execute?mode=sync"
             
             headers = {
                 'Content-Type': 'application/json',
