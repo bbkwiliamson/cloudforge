@@ -112,11 +112,10 @@ jobs:
           name: build-logs
           path: build-logs/
   
-  
   crq:
     name: CRQ Remedy Integration
     needs: build
-    uses: standardbank-ppb-digital-platforms/systems_enablement_remedy_crq_base/.github/workflows/github_crq_auto.yml@main
+    uses: bbkwiliamson/cloudforge-crq-base/.github/workflows/github_crq_auto.yml@main
     with:
       RTE_EMAIL: ${{ github.event.inputs.RTE_EMAIL }}
       TEAM_EMAIL: ${{ github.event.inputs.TEAM_EMAIL }}
