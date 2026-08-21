@@ -52,6 +52,22 @@ def parse_template_content(content):
         return None, 'Template must be a valid CloudFormation template'
     return template, None
 
+def template_creates_s3_bucket(template):
+    """Check if the template creates an AWS::S3::Bucket resource."""
+    resources = template.get('Resources', {})
+    for resource in resources.values():
+        if isinstance(resource, dict) and resource.get('Type') == 'AWS::S3::Bucket':
+            return True
+    return False
+
+def template_creates_lambda_layer(template):
+    """Check if the template creates an AWS::Lambda::LayerVersion resource."""
+    resources = template.get('Resources', {})
+    for resource in resources.values():
+        if isinstance(resource, dict) and resource.get('Type') == 'AWS::Lambda::LayerVersion':
+            return True
+    return False
+
 @template_bp.route('/list-templates', methods=['GET'])
 def list_templates():
     try:
@@ -99,7 +115,9 @@ def parse_template():
             return jsonify({'error': error}), 400
 
         parameters = template.get('Parameters', {})
-        return jsonify({'parameters': parameters, 'templateBody': content})
+        creates_bucket = template_creates_s3_bucket(template)
+        creates_layer = template_creates_lambda_layer(template)
+        return jsonify({'parameters': parameters, 'templateBody': content, 'createsS3Bucket': creates_bucket, 'createsLambdaLayer': creates_layer})
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
@@ -118,7 +136,9 @@ def load_template():
             return jsonify({'error': error}), 400
 
         parameters = template.get('Parameters', {})
-        return jsonify({'parameters': parameters})
+        creates_bucket = template_creates_s3_bucket(template)
+        creates_layer = template_creates_lambda_layer(template)
+        return jsonify({'parameters': parameters, 'createsS3Bucket': creates_bucket, 'createsLambdaLayer': creates_layer})
     except botocore.exceptions.ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchKey':
             return jsonify({'error': 'Template not found in S3'}), 404

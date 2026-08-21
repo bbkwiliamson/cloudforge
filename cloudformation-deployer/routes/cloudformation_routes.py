@@ -90,11 +90,10 @@ def list_stacks():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         query = data.get('query', '').lower()
         
-        cf = create_aws_client('cloudformation', region, access_key_id, secret_access_key)
+        cf = create_aws_client('cloudformation', region, account_id)
         
         stacks = []
         paginator = cf.get_paginator('list_stacks')
@@ -114,7 +113,7 @@ def list_stacks():
         
         # Sort by name and limit results
         stacks.sort(key=lambda x: x['name'])
-        return jsonify({'stacks': stacks[:20]})  # Limit to 20 results
+        return jsonify({'stacks': stacks})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -281,4 +280,44 @@ def generate_implementation_plan():
         return jsonify({'documentData': doc_base64})
     except Exception as e:
         print(f"Error generating document: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@cloudformation_bp.route('/get-stack-template', methods=['POST'])
+def get_stack_template():
+    try:
+        data = request.json
+        region = data['region']
+        account_id = data['accountId']
+        stack_name = data['stackName']
+
+        cf = create_aws_client('cloudformation', region, account_id)
+        response = cf.get_template(StackName=stack_name, TemplateStage='Original')
+
+        return jsonify({'template': response.get('TemplateBody', '')})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@cloudformation_bp.route('/get-stack-resources', methods=['POST'])
+def get_stack_resources():
+    try:
+        data = request.json
+        region = data['region']
+        account_id = data['accountId']
+        stack_name = data['stackName']
+
+        cf = create_aws_client('cloudformation', region, account_id)
+        response = cf.describe_stack_resources(StackName=stack_name)
+
+        resources = []
+        for r in response.get('StackResources', []):
+            resources.append({
+                'logicalId': r.get('LogicalResourceId', ''),
+                'physicalId': r.get('PhysicalResourceId', ''),
+                'type': r.get('ResourceType', ''),
+                'status': r.get('ResourceStatus', '')
+            })
+
+        return jsonify({'resources': resources})
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

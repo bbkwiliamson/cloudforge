@@ -10,11 +10,10 @@ def list_s3_buckets():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         query = data.get('query', '').lower()
         
-        s3 = create_aws_client('s3', region, access_key_id, secret_access_key)
+        s3 = create_aws_client('s3', region, account_id)
         
         response = s3.list_buckets()
         buckets = []

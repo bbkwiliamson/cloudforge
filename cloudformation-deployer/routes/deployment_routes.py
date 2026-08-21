@@ -1,12 +1,13 @@
 from flask import Blueprint, request, jsonify
-import boto3
 import yaml
 import json
 import os
 import logging
 from datetime import datetime
 from itsm_integration import ITSMIntegration
+from utils.aws_client import create_aws_client
 from utils.guard_validator import validate_template as run_guard_validation
+from routes.prefix_list_routes import patch_prefix_list_template
 
 deployment_bp = Blueprint('deployment', __name__)
 logger = logging.getLogger(__name__)
@@ -25,7 +26,6 @@ def construct_cf_function(loader, tag_suffix, node):
     else:
         return {tag_suffix: None}
 
-# Register CloudFormation functions
 for tag in ['!Ref', '!GetAtt', '!Join', '!Sub', '!Select', '!Split', '!Base64', '!GetAZs', '!ImportValue', '!FindInMap', '!Condition', '!If', '!Not', '!Equals', '!And', '!Or']:
     CFLoader.add_multi_constructor(tag, construct_cf_function)
 
@@ -40,6 +40,7 @@ GUARD_RULES_KEY = os.environ.get('GUARD_RULES_KEY', 'guard-rules/cloudforge-guar
 def _run_guard_check(template_body, template_path):
     """Run guard validation and return HIGH findings or None"""
     try:
+        import boto3
         s3 = boto3.client('s3', region_name=os.environ.get('AWS_DEFAULT_REGION', 'af-south-1'))
         if template_body:
             try:
@@ -70,15 +71,12 @@ def merge_parameters_with_overrides(existing_params, new_template_params, overri
     if overrides is None:
         overrides = {}
     
-    # Always override CreatedBy/Createdby fields
     for param_key in new_template_params.keys():
         if param_key.lower() in ['createdby', 'creator']:
             overrides[param_key] = 'CloudForge-API'
     
-    # Start with existing parameters
     merged_params = existing_params.copy()
     
-    # Apply overrides
     for key, value in overrides.items():
         if key in new_template_params:
             merged_params[key] = value
@@ -95,11 +93,9 @@ def deploy():
         parameters = data['parameters']
         stack_name = data['stackName']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         user_email = data.get('userEmail', 'unknown')
         rte_email = data.get('rteEmail')
-        account_id = data.get('accountId', 'unknown')
         environment = data.get('environment', 'unknown')
         
         audit_info = f"Environment: {environment}"
@@ -135,20 +131,16 @@ def deploy():
             except Exception as itsm_error:
                 logger.error(f"ITSM Change Request creation failed: {str(itsm_error)}")
         
-        cf = boto3.client(
-            'cloudformation',
-            region_name=region,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key
-        )
+        cf = create_aws_client('cloudformation', region, account_id)
         
         # Use template body if provided (custom upload), otherwise fetch from S3
         if template_body:
-            pass  # Already have template_body
+            pass
         elif template_path:
             try:
+                import boto3
                 s3 = boto3.client('s3', region_name=os.environ.get('AWS_DEFAULT_REGION', 'af-south-1'))
-                s3_response = s3.get_object(Bucket=os.environ.get('TEMPLATES_BUCKET', 'cloudforge-templates-bucket'), Key=template_path)
+                s3_response = s3.get_object(Bucket=TEMPLATES_BUCKET, Key=template_path)
                 template_body = s3_response['Body'].read().decode('utf-8')
             except Exception as s3_err:
                 logger.error(f"Error fetching template from S3: {str(s3_err)}")
@@ -156,7 +148,7 @@ def deploy():
         else:
             return jsonify({'error': 'No template provided'}), 400
         
-        # Parse template to enforce CreatedBy/Createdby override
+        # Parse template to enforce CreatedBy override
         try:
             template = yaml.load(template_body, Loader=CFLoader)
         except yaml.YAMLError:
@@ -167,7 +159,6 @@ def deploy():
         
         template_params = template.get('Parameters', {})
         
-        # Ensure CreatedBy/Createdby is always CloudForge-API
         final_params = parameters.copy()
         for param_key in template_params.keys():
             if param_key.lower() in ['createdby', 'creator']:
@@ -184,9 +175,8 @@ def deploy():
             EnableTerminationProtection=True
         )
         
-        logger.info(f"AUDIT: Stack deployment successful by {user_email} in account {account_id} - Stack ID: {response['StackId']} (termination protection enabled), {audit_info}")
+        logger.info(f"AUDIT: Stack deployment successful by {user_email} in account {account_id} - Stack ID: {response['StackId']}, {audit_info}")
         
-        # Update ITSM Change Request on successful deployment
         if change_id:
             try:
                 itsm = ITSMIntegration()
@@ -200,7 +190,6 @@ def deploy():
     except Exception as e:
         logger.error(f"AUDIT: Stack deployment failed by {user_email} in account {account_id} - Error: {str(e)}")
         
-        # Update ITSM Change Request on deployment failure
         if 'change_id' in locals() and change_id:
             try:
                 itsm = ITSMIntegration()
@@ -221,11 +210,9 @@ def update_stack():
         parameters = data['parameters']
         stack_name = data['stackName']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         user_email = data.get('userEmail', 'unknown')
         rte_email = data.get('rteEmail')
-        account_id = data.get('accountId', 'unknown')
         environment = data.get('environment', 'unknown')
         
         audit_info = f"Environment: {environment}"
@@ -261,20 +248,15 @@ def update_stack():
             except Exception as itsm_error:
                 logger.error(f"ITSM Change Request creation failed: {str(itsm_error)}")
         
-        cf = boto3.client(
-            'cloudformation',
-            region_name=region,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key
-        )
+        cf = create_aws_client('cloudformation', region, account_id)
         
-        # Use template body if provided (custom upload), otherwise fetch from S3
         if template_body:
-            pass  # Already have template_body
+            pass
         elif template_path:
             try:
+                import boto3
                 s3 = boto3.client('s3', region_name=os.environ.get('AWS_DEFAULT_REGION', 'af-south-1'))
-                s3_response = s3.get_object(Bucket=os.environ.get('TEMPLATES_BUCKET', 'cloudforge-templates-bucket'), Key=template_path)
+                s3_response = s3.get_object(Bucket=TEMPLATES_BUCKET, Key=template_path)
                 template_body = s3_response['Body'].read().decode('utf-8')
             except Exception as s3_err:
                 logger.error(f"Error fetching template from S3: {str(s3_err)}")
@@ -282,6 +264,11 @@ def update_stack():
         else:
             return jsonify({'error': 'No template provided'}), 400
         
+        # Patch prefix list entries if applicable
+        allowed_cidrs = parameters.get('AllowedCidrs', '')
+        if allowed_cidrs:
+            template_body = patch_prefix_list_template(template_body, allowed_cidrs)
+
         # Parse template to get parameter definitions
         try:
             template = yaml.load(template_body, Loader=CFLoader)
@@ -302,13 +289,9 @@ def update_stack():
                 for param in stack.get('Parameters', []):
                     existing_params[param['ParameterKey']] = param['ParameterValue']
             
-            # Merge parameters with CloudForge overrides
             merged_params = merge_parameters_with_overrides(existing_params, new_template_params)
-            
-            # Override with any user-provided parameters
             merged_params.update(parameters)
             
-            # Ensure CreatedBy/Createdby is always CloudForge-API
             for param_key in new_template_params.keys():
                 if param_key.lower() in ['createdby', 'creator']:
                     merged_params[param_key] = 'CloudForge-API'
@@ -317,14 +300,17 @@ def update_stack():
         except Exception as param_error:
             logger.warning(f"Could not retrieve existing parameters: {str(param_error)}")
             merged_params = parameters.copy()
-            # Still enforce CreatedBy override even if we can't get existing params
             for param_key in new_template_params.keys():
                 if param_key.lower() in ['createdby', 'creator']:
                     merged_params[param_key] = 'CloudForge-API'
         
-        params = [{'ParameterKey': k, 'ParameterValue': v} for k, v in merged_params.items()]
+        # Filter to only parameters that exist in the new template
+        params = [
+            {'ParameterKey': k, 'ParameterValue': v}
+            for k, v in merged_params.items()
+            if k in new_template_params
+        ]
         
-        # Update the stack
         response = cf.update_stack(
             StackName=stack_name,
             TemplateBody=template_body,
@@ -346,7 +332,6 @@ def update_stack():
         
         logger.info(f"AUDIT: Stack update successful by {user_email} in account {account_id} - Stack ID: {response['StackId']}, {audit_info}")
         
-        # Update ITSM Change Request on successful update
         if change_id:
             try:
                 itsm = ITSMIntegration()
@@ -360,7 +345,6 @@ def update_stack():
     except Exception as e:
         logger.error(f"AUDIT: Stack update failed by {user_email} in account {account_id} - Error: {str(e)}")
         
-        # Check if stack is in ROLLBACK_COMPLETE or UPDATE_ROLLBACK_FAILED state
         if 'ROLLBACK_COMPLETE state and can not be updated' in str(e) or 'UPDATE_ROLLBACK_FAILED state and can not be updated' in str(e):
             return jsonify({
                 'error': str(e),
@@ -378,11 +362,9 @@ def delete_stack():
         data = request.json
         stack_name = data['stackName']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         user_email = data.get('userEmail', 'unknown')
         rte_email = data.get('rteEmail')
-        account_id = data.get('accountId', 'unknown')
         environment = data.get('environment', 'unknown')
         
         audit_info = f"Environment: {environment}"
@@ -401,7 +383,7 @@ def delete_stack():
                     'account_id': account_id,
                     'region': region,
                     'environment': environment,
-                    'template_path': '',  # No template for deletion
+                    'template_path': '',
                     'user_email': user_email,
                     'rte_email': rte_email,
                     'deployment_type': 'DELETE'
@@ -413,12 +395,7 @@ def delete_stack():
             except Exception as itsm_error:
                 logger.error(f"ITSM Change Request creation failed: {str(itsm_error)}")
         
-        cf = boto3.client(
-            'cloudformation',
-            region_name=region,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key
-        )
+        cf = create_aws_client('cloudformation', region, account_id)
         
         # Disable termination protection first
         cf.update_termination_protection(
@@ -426,12 +403,10 @@ def delete_stack():
             EnableTerminationProtection=False
         )
         
-        # Delete the stack
         cf.delete_stack(StackName=stack_name)
         
         logger.info(f"AUDIT: Stack deletion successful by {user_email} in account {account_id} - Stack: {stack_name}, {audit_info}")
         
-        # Update ITSM Change Request on successful deletion
         if change_id:
             try:
                 itsm = ITSMIntegration()
@@ -445,7 +420,6 @@ def delete_stack():
     except Exception as e:
         logger.error(f"AUDIT: Stack deletion failed by {user_email} in account {account_id} - Error: {str(e)}")
         
-        # Update ITSM Change Request on deletion failure
         if 'change_id' in locals() and change_id:
             try:
                 itsm = ITSMIntegration()
@@ -468,7 +442,7 @@ def create_crq_for_environment():
         environment = data.get('environment', 'unknown')
         user_email = data.get('userEmail', 'unknown')
         rte_email = data.get('rteEmail')
-        operation_type = data.get('operationType', 'DEPLOY')  # DEPLOY, UPDATE, DELETE
+        operation_type = data.get('operationType', 'DEPLOY')
         template_path = data.get('templatePath', '')
         
         if environment != 'PROD':
@@ -496,7 +470,6 @@ def create_crq_for_environment():
                 logger.info(f"Pre-created ITSM Change Request: {change_id} for {operation_type} operation on stack {stack_name}")
                 return jsonify({'changeId': change_id})
             else:
-                logger.error("Failed to create ITSM Change Request")
                 return jsonify({'error': 'Failed to create Change Request'}), 500
                 
         except Exception as itsm_error:

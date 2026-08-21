@@ -10,6 +10,10 @@ from itsm_integration import ITSMIntegration
 auth_bp = Blueprint('auth', __name__)
 logger = logging.getLogger(__name__)
 
+PROD_ACCOUNTS_SECRET = 'cloudforge/secrets/prod-accounts-list'
+NONPROD_ACCOUNTS_SECRET = 'cloudforge/secrets/non-prod-accounts-list' #'cloudforge/secrets/non-prod-accounts'
+ALLOWED_USERS_SECRET = 'cloudforge/allowed-users' # cloudforge/allowed-users-example'
+
 @auth_bp.route('/auth/login', methods=['POST'])
 def ldap_login():
     try:
@@ -148,9 +152,11 @@ def _get_prod_accounts():
     """Get production account IDs from Secrets Manager or fallback to file"""
     try:
         secrets_client = boto3.client('secretsmanager')
-        secret_response = secrets_client.get_secret_value(SecretId='cloudforge/secrets/prod-accounts-list')
+        secret_response = secrets_client.get_secret_value(SecretId=PROD_ACCOUNTS_SECRET)
         secret_data = json.loads(secret_response['SecretString'])
         prod_accounts = secret_data.get('accounts', [])
+        # Normalize to list of account ID strings
+        prod_accounts = [a['accountId'] if isinstance(a, dict) else a for a in prod_accounts]
         logger.info("✅ PROD ACCOUNTS SOURCE: AWS Secrets Manager")
         return prod_accounts
     except (ClientError, KeyError, json.JSONDecodeError) as e:
@@ -163,6 +169,50 @@ def _get_prod_accounts():
         except FileNotFoundError:
             logger.error("❌ No prod accounts found in Secrets Manager or file")
             return []
+
+@auth_bp.route('/get-account-list', methods=['GET'])
+def get_account_list():
+    """Fetch all accounts (prod + non-prod) with descriptions for the dropdown"""
+    try:
+        secrets_client = boto3.client('secretsmanager')
+        accounts = []
+
+        # Fetch prod accounts
+        try:
+            prod_response = secrets_client.get_secret_value(SecretId=PROD_ACCOUNTS_SECRET)
+            prod_data = json.loads(prod_response['SecretString'])
+            for item in prod_data.get('accounts', []):
+                if isinstance(item, dict):
+                    accounts.append({'accountId': item['accountId'], 'description': item.get('description', ''), 'environment': 'PROD'})
+                else:
+                    accounts.append({'accountId': item, 'description': '', 'environment': 'PROD'})
+        except (ClientError, KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"Could not fetch prod accounts from Secrets Manager: {e}")
+            try:
+                with open('prod_accounts.txt', 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            accounts.append({'accountId': line, 'description': '', 'environment': 'PROD'})
+            except FileNotFoundError:
+                pass
+
+        # Fetch non-prod accounts
+        try:
+            nonprod_response = secrets_client.get_secret_value(SecretId=NONPROD_ACCOUNTS_SECRET)
+            nonprod_data = json.loads(nonprod_response['SecretString'])
+            for item in nonprod_data.get('accounts', []):
+                if isinstance(item, dict):
+                    accounts.append({'accountId': item['accountId'], 'description': item.get('description', ''), 'environment': 'NON-PROD'})
+                else:
+                    accounts.append({'accountId': item, 'description': '', 'environment': 'NON-PROD'})
+        except (ClientError, KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"Could not fetch non-prod accounts from Secrets Manager: {e}")
+
+        return jsonify({'accounts': accounts})
+    except Exception as e:
+        logger.error(f"Error fetching account list: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @auth_bp.route('/check-account-environment', methods=['POST'])
 def check_account_environment():

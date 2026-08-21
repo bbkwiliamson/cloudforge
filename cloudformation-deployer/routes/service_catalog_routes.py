@@ -1,5 +1,4 @@
 from flask import Blueprint, request, jsonify
-import boto3
 import logging
 from utils.aws_client import create_aws_client
 
@@ -11,10 +10,9 @@ def list_service_catalog_products():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         products = []
         next_token = None
@@ -39,8 +37,6 @@ def list_service_catalog_products():
                 })
             
             next_token = response.get('NextPageToken')
-            logger.info(f"Service Catalog: NextPageToken present: {next_token is not None}")
-            
             if not next_token:
                 break
         
@@ -56,10 +52,9 @@ def get_product_versions():
         data = request.json
         product_id = data['productId']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         product_response = sc.describe_product(Id=product_id)
         
@@ -85,10 +80,9 @@ def get_product_details():
         product_id = data['productId']
         artifact_id = data['artifactId']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         product_response = sc.describe_product(Id=product_id)
         
@@ -114,16 +108,14 @@ def get_product_details():
                 'isNoEcho': p.get('IsNoEcho', False)
             }
             
-            # Check for constraints (allowed values)
             constraints = p.get('ParameterConstraints', {})
             if 'AllowedValues' in constraints:
                 param['allowedValues'] = constraints['AllowedValues']
             else:
-                # Check if parameter name suggests VPC or subnet - use our existing helpers
                 param_key_lower = p['ParameterKey'].lower()
                 if 'vpc' in param_key_lower:
                     try:
-                        ec2_client = create_aws_client('ec2', region, access_key_id, secret_access_key)
+                        ec2_client = create_aws_client('ec2', region, account_id)
                         vpc_response = ec2_client.describe_vpcs()
                         vpcs = [vpc['VpcId'] for vpc in vpc_response.get('Vpcs', [])]
                         param['allowedValues'] = vpcs
@@ -131,7 +123,7 @@ def get_product_details():
                         pass
                 elif 'subnet' in param_key_lower:
                     try:
-                        ec2_client = create_aws_client('ec2', region, access_key_id, secret_access_key)
+                        ec2_client = create_aws_client('ec2', region, account_id)
                         subnet_response = ec2_client.describe_subnets()
                         subnets = [subnet['SubnetId'] for subnet in subnet_response.get('Subnets', [])]
                         param['allowedValues'] = subnets
@@ -158,15 +150,13 @@ def provision_product():
         parameters = data['parameters']
         provisioned_product_name = data['provisionedProductName']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         user_email = data.get('userEmail', 'unknown')
         rte_email = data.get('rteEmail')
-        account_id = data.get('accountId', 'unknown')
         
         logger.info(f"AUDIT: Service Catalog provision initiated by {user_email} (RTE: {rte_email}) for product {product_id} in account {account_id}")
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         params = [{'Key': k, 'Value': v} for k, v in parameters.items()]
         tags = [{'Key': 'CloudForgeUI', 'Value': 'true'}]
@@ -180,11 +170,11 @@ def provision_product():
         )
         
         record_id = response['RecordDetail']['RecordId']
-        logger.info(f"AUDIT: Service Catalog provision successful by {user_email} (RTE: {rte_email}) in account {account_id} - Record ID: {record_id}")
+        logger.info(f"AUDIT: Service Catalog provision successful - Record ID: {record_id}")
         
         return jsonify({'recordId': record_id})
     except Exception as e:
-        logger.error(f"AUDIT: Service Catalog provision failed by {user_email} (RTE: {rte_email}) in account {account_id} - Error: {str(e)}")
+        logger.error(f"AUDIT: Service Catalog provision failed - Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @service_catalog_bp.route('/service-catalog/provision-status', methods=['POST'])
@@ -193,10 +183,9 @@ def get_provision_status():
         data = request.json
         record_id = data['recordId']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         response = sc.describe_record(Id=record_id)
         record = response['RecordDetail']
@@ -207,10 +196,6 @@ def get_provision_status():
         if record['Status'] == 'SUCCEEDED':
             for output in record.get('RecordOutputs', []):
                 outputs[output['OutputKey']] = output['OutputValue']
-            
-            provisioned_product_id = record.get('ProvisionedProductId', '')
-            if provisioned_product_id:
-                logger.info(f"Provisioning succeeded for product {provisioned_product_id}")
         elif record['Status'] in ['FAILED', 'ERROR']:
             for error in record.get('RecordErrors', []):
                 error_details.append({
@@ -233,28 +218,26 @@ def terminate_provisioned_product():
         data = request.json
         provisioned_product_id = data['provisionedProductId']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         user_email = data.get('userEmail', 'unknown')
         rte_email = data.get('rteEmail')
-        account_id = data.get('accountId', 'unknown')
         environment = data.get('environment', 'unknown')
         crq_id = data.get('crqId', '')
         
         logger.info(f"AUDIT: Service Catalog termination initiated by {user_email} (RTE: {rte_email}) for product {provisioned_product_id} in account {account_id} - Environment: {environment}, CRQ: {crq_id}")
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         response = sc.terminate_provisioned_product(
             ProvisionedProductId=provisioned_product_id
         )
         
         record_id = response['RecordDetail']['RecordId']
-        logger.info(f"AUDIT: Service Catalog termination successful by {user_email} (RTE: {rte_email}) in account {account_id} - Record ID: {record_id}")
+        logger.info(f"AUDIT: Service Catalog termination successful - Record ID: {record_id}")
         
         return jsonify({'recordId': record_id})
     except Exception as e:
-        logger.error(f"AUDIT: Service Catalog termination failed by {user_email} (RTE: {rte_email}) in account {account_id} - Error: {str(e)}")
+        logger.error(f"AUDIT: Service Catalog termination failed - Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @service_catalog_bp.route('/service-catalog/product-resources', methods=['POST'])
@@ -263,10 +246,9 @@ def get_product_resources():
         data = request.json
         provisioned_product_id = data['provisionedProductId']
         region = data['region']
-        access_key_id = data['accessKeyId'].strip()
-        secret_access_key = data['secretAccessKey'].strip()
+        account_id = data['accountId']
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         describe_response = sc.describe_provisioned_product(Id=provisioned_product_id)
         product_detail = describe_response.get('ProvisionedProductDetail', {})
@@ -300,7 +282,7 @@ def get_product_resources():
         
         if stack_identifier:
             try:
-                cf = create_aws_client('cloudformation', region, access_key_id, secret_access_key)
+                cf = create_aws_client('cloudformation', region, account_id)
                 cf_response = cf.describe_stack_resources(StackName=stack_identifier)
                 
                 for resource in cf_response.get('StackResources', []):
@@ -311,8 +293,6 @@ def get_product_resources():
                         'status': resource['ResourceStatus'],
                         'description': ''
                     })
-                
-                logger.info(f"Found {len(cf_response.get('StackResources', []))} CF resources")
             except Exception as cf_error:
                 logger.error(f"CF error: {str(cf_error)}")
         
@@ -327,12 +307,9 @@ def get_product_parameters():
         data = request.json
         provisioned_product_id = data.get('provisionedProductId')
         region = data.get('region')
-        access_key_id = data.get('accessKeyId', '').strip()
-        secret_access_key = data.get('secretAccessKey', '').strip()
+        account_id = data.get('accountId')
         
-        logger.info(f"Getting parameters for product {provisioned_product_id}")
-        
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         describe_response = sc.describe_provisioned_product(Id=provisioned_product_id)
         product_detail = describe_response.get('ProvisionedProductDetail', {})
@@ -356,14 +333,12 @@ def get_product_parameters():
                 stack_id = product_detail.get('PhysicalId')
             
             if stack_id:
-                cf = create_aws_client('cloudformation', region, access_key_id, secret_access_key)
+                cf = create_aws_client('cloudformation', region, account_id)
                 stack_response = cf.describe_stacks(StackName=stack_id)
                 if stack_response.get('Stacks'):
                     stack = stack_response['Stacks'][0]
                     for param in stack.get('Parameters', []):
                         provisioning_params[param['ParameterKey']] = param['ParameterValue']
-                    
-                    logger.info(f"Found {len(provisioning_params)} parameters from CloudFormation stack")
         except Exception as cf_error:
             logger.warning(f"Could not get CloudFormation parameters: {str(cf_error)}")
         
@@ -382,10 +357,9 @@ def list_provisioned_products():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        sc = create_aws_client('servicecatalog', region, access_key_id, secret_access_key)
+        sc = create_aws_client('servicecatalog', region, account_id)
         
         products = []
         next_token = None
@@ -398,7 +372,6 @@ def list_provisioned_products():
             response = sc.search_provisioned_products(**params)
             
             for p in response.get('ProvisionedProducts', []):
-                # Check if product has CloudForgeUI tag using the last record
                 try:
                     last_record_id = p.get('LastRecordId')
                     if last_record_id:
@@ -406,7 +379,6 @@ def list_provisioned_products():
                         record_tags = record_response.get('RecordDetail', {}).get('RecordTags', [])
                         tags_dict = {tag['Key']: tag['Value'] for tag in record_tags}
                         
-                        # Only include products created via UI
                         if tags_dict.get('CloudForgeUI') == 'true':
                             products.append({
                                 'id': p['Id'],
@@ -419,10 +391,6 @@ def list_provisioned_products():
                                 'productId': p.get('ProductId', ''),
                                 'provisioningArtifactId': p.get('ProvisioningArtifactId', '')
                             })
-                        else:
-                            logger.debug(f"Product {p['Name']} does not have CloudForgeUI tag")
-                    else:
-                        logger.debug(f"Product {p['Name']} has no LastRecordId")
                 except Exception as e:
                     logger.warning(f"Could not check tags for product {p.get('Name', 'unknown')}: {str(e)}")
                     continue

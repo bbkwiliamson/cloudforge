@@ -8,10 +8,9 @@ def get_vpcs():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        ec2_client = create_aws_client('ec2', region, access_key_id, secret_access_key)
+        ec2_client = create_aws_client('ec2', region, account_id)
         
         response = ec2_client.describe_vpcs()
         vpcs = []
@@ -35,10 +34,9 @@ def get_vpc_details():
         data = request.json
         vpc_id = data['vpcId']
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        ec2_client = create_aws_client('ec2', region, access_key_id, secret_access_key)
+        ec2_client = create_aws_client('ec2', region, account_id)
         
         # Get VPC details
         vpc_response = ec2_client.describe_vpcs(VpcIds=[vpc_id])
@@ -72,10 +70,9 @@ def get_subnets():
         data = request.json
         vpc_id = data['vpcId']
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        ec2_client = create_aws_client('ec2', region, access_key_id, secret_access_key)
+        ec2_client = create_aws_client('ec2', region, account_id)
         
         response = ec2_client.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
         subnets = []
@@ -100,12 +97,10 @@ def check_sns_topic():
         data = request.json
         topic_name = data['topicName']
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        sns_client = create_aws_client('sns', region, access_key_id, secret_access_key)
+        sns_client = create_aws_client('sns', region, account_id)
         
-        # List all topics and check if the name exists
         paginator = sns_client.get_paginator('list_topics')
         for page in paginator.paginate():
             for topic in page.get('Topics', []):
@@ -124,25 +119,45 @@ def check_bucket_name():
         data = request.json
         bucket_name = data['bucketName']
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        s3_client = create_aws_client('s3', region, access_key_id, secret_access_key)
+        s3_client = create_aws_client('s3', region, account_id)
         
         try:
-            # Try to get bucket location - if it succeeds, bucket exists
             s3_client.get_bucket_location(Bucket=bucket_name)
             return jsonify({'available': False, 'reason': 'Bucket name already exists'})
         except s3_client.exceptions.NoSuchBucket:
-            # Bucket doesn't exist, name is available
             return jsonify({'available': True})
         except Exception as e:
             error_code = getattr(e, 'response', {}).get('Error', {}).get('Code', '')
             if error_code == 'AccessDenied':
-                # Bucket exists but we don't have access
                 return jsonify({'available': False, 'reason': 'Bucket name already exists'})
             else:
                 return jsonify({'available': False, 'reason': str(e)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@aws_resources_bp.route('/check-layer-name', methods=['POST'])
+def check_layer_name():
+    try:
+        data = request.json
+        layer_name = data['layerName']
+        region = data['region']
+        account_id = data['accountId']
+        
+        lambda_client = create_aws_client('lambda', region, account_id)
+        
+        try:
+            response = lambda_client.list_layer_versions(LayerName=layer_name, MaxItems=1)
+            exists = len(response.get('LayerVersions', [])) > 0
+            return jsonify({'exists': exists})
+        except lambda_client.exceptions.ResourceNotFoundException:
+            return jsonify({'exists': False})
+        except Exception as e:
+            error_code = getattr(e, 'response', {}).get('Error', {}).get('Code', '')
+            if error_code == 'ResourceNotFoundException':
+                return jsonify({'exists': False})
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -151,10 +166,9 @@ def get_iam_roles():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        iam_client = create_aws_client('iam', region, access_key_id, secret_access_key)
+        iam_client = create_aws_client('iam', region, account_id)
         
         roles = []
         paginator = iam_client.get_paginator('list_roles')
@@ -175,10 +189,9 @@ def get_lambda_layers():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        lambda_client = create_aws_client('lambda', region, access_key_id, secret_access_key)
+        lambda_client = create_aws_client('lambda', region, account_id)
         
         layers = []
         paginator = lambda_client.get_paginator('list_layers')
@@ -196,25 +209,51 @@ def get_lambda_layers():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@aws_resources_bp.route('/ec2-instances', methods=['POST'])
+def get_ec2_instances():
+    try:
+        data = request.json
+        region = data['region']
+        account_id = data['accountId']
+        
+        ec2_client = create_aws_client('ec2', region, account_id)
+        
+        instances = []
+        paginator = ec2_client.get_paginator('describe_instances')
+        
+        for page in paginator.paginate(Filters=[{'Name': 'instance-state-name', 'Values': ['running', 'stopped']}]):
+            for reservation in page.get('Reservations', []):
+                for instance in reservation.get('Instances', []):
+                    name = get_tag_value(instance.get('Tags', []), 'Name')
+                    instances.append({
+                        'id': instance['InstanceId'],
+                        'name': name,
+                        'type': instance['InstanceType'],
+                        'state': instance['State']['Name']
+                    })
+        
+        return jsonify({'instances': instances})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @aws_resources_bp.route('/rds-instances', methods=['POST'])
 def get_rds_instances():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        rds_client = create_aws_client('rds', region, access_key_id, secret_access_key)
+        rds_client = create_aws_client('rds', region, account_id)
         
         instances = []
         paginator = rds_client.get_paginator('describe_db_instances')
         
         for page in paginator.paginate():
-            for instance in page.get('DBInstances', []):
+            for db in page.get('DBInstances', []):
                 instances.append({
-                    'identifier': instance['DBInstanceIdentifier'],
-                    'engine': instance['Engine'],
-                    'status': instance['DBInstanceStatus']
+                    'identifier': db['DBInstanceIdentifier'],
+                    'engine': db['Engine'],
+                    'status': db['DBInstanceStatus']
                 })
         
         return jsonify({'instances': instances})
@@ -222,27 +261,50 @@ def get_rds_instances():
         return jsonify({'error': str(e)}), 500
 
 @aws_resources_bp.route('/secrets-manager-secrets', methods=['POST'])
-def get_secrets_manager_secrets():
+def get_secrets():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        secrets_client = create_aws_client('secretsmanager', region, access_key_id, secret_access_key)
+        sm_client = create_aws_client('secretsmanager', region, account_id)
         
         secrets = []
-        paginator = secrets_client.get_paginator('list_secrets')
+        paginator = sm_client.get_paginator('list_secrets')
         
         for page in paginator.paginate():
             for secret in page.get('SecretList', []):
                 secrets.append({
                     'name': secret['Name'],
-                    'arn': secret['ARN'],
                     'description': secret.get('Description', '')
                 })
         
         return jsonify({'secrets': secrets})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@aws_resources_bp.route('/prefix-lists', methods=['POST'])
+def get_prefix_lists():
+    try:
+        data = request.json
+        region = data['region']
+        account_id = data['accountId']
+
+        ec2_client = create_aws_client('ec2', region, account_id)
+
+        prefix_lists = []
+        paginator = ec2_client.get_paginator('describe_managed_prefix_lists')
+
+        for page in paginator.paginate():
+            for pl in page.get('PrefixLists', []):
+                prefix_lists.append({
+                    'id': pl['PrefixListId'],
+                    'name': pl['PrefixListName'],
+                    'arn': pl['PrefixListArn'],
+                    'state': pl['State']
+                })
+
+        return jsonify({'prefixLists': prefix_lists})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -251,10 +313,9 @@ def get_iam_users():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         
-        iam_client = create_aws_client('iam', region, access_key_id, secret_access_key)
+        iam_client = create_aws_client('iam', region, account_id)
         
         users = []
         paginator = iam_client.get_paginator('list_users')
@@ -264,7 +325,7 @@ def get_iam_users():
                 users.append({
                     'userName': user['UserName'],
                     'arn': user['Arn'],
-                    'createDate': user['CreateDate'].isoformat()
+                    'createDate': user['CreateDate'].isoformat() if 'CreateDate' in user else None
                 })
         
         return jsonify({'users': users})
@@ -276,31 +337,34 @@ def get_iam_policies():
     try:
         data = request.json
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
-        query = data.get('query', '').lower()
+        account_id = data['accountId']
         
-        iam_client = create_aws_client('iam', region, access_key_id, secret_access_key)
+        iam_client = create_aws_client('iam', region, account_id)
         
         policies = []
         
-        # Get AWS managed policies
+        # Get customer managed policies
         paginator = iam_client.get_paginator('list_policies')
-        for page in paginator.paginate(Scope='All', MaxItems=500):
+        for page in paginator.paginate(Scope='Local'):
             for policy in page.get('Policies', []):
-                policy_name = policy['PolicyName']
-                if query in policy_name.lower():
-                    policies.append({
-                        'policyName': policy_name,
-                        'arn': policy['Arn'],
-                        'description': policy.get('Description', ''),
-                        'isAWSManaged': policy['Arn'].startswith('arn:aws:iam::aws:')
-                    })
+                policies.append({
+                    'policyName': policy['PolicyName'],
+                    'arn': policy['Arn'],
+                    'description': policy.get('Description', ''),
+                    'isAWSManaged': False
+                })
         
-        # Sort: customer managed first, then AWS managed
-        policies.sort(key=lambda x: (x['isAWSManaged'], x['policyName']))
+        # Get AWS managed policies (limited to commonly used ones)
+        for page in paginator.paginate(Scope='AWS', MaxItems=100):
+            for policy in page.get('Policies', []):
+                policies.append({
+                    'policyName': policy['PolicyName'],
+                    'arn': policy['Arn'],
+                    'description': policy.get('Description', ''),
+                    'isAWSManaged': True
+                })
         
-        return jsonify({'policies': policies[:100]})  # Limit to 100 results
+        return jsonify({'policies': policies})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -311,31 +375,20 @@ def attach_user_policy():
         user_name = data['userName']
         policy_arn = data['policyArn']
         region = data['region']
-        access_key_id = data['accessKeyId']
-        secret_access_key = data['secretAccessKey']
+        account_id = data['accountId']
         user_email = data.get('userEmail', 'unknown')
-        account_id = data.get('accountId', 'unknown')
         
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"AUDIT: IAM policy attachment initiated by {user_email} - User: {user_name}, Policy: {policy_arn}, Account: {account_id}")
+        iam_client = create_aws_client('iam', region, account_id)
         
-        iam_client = create_aws_client('iam', region, access_key_id, secret_access_key)
-        
-        # Attach policy to user
+        # Attach the policy to the user
         iam_client.attach_user_policy(
             UserName=user_name,
             PolicyArn=policy_arn
         )
         
-        logger.info(f"AUDIT: IAM policy attachment successful by {user_email} - User: {user_name}, Policy: {policy_arn}, Account: {account_id}")
-        
         return jsonify({
             'success': True,
-            'message': f'Policy successfully attached to user {user_name}'
+            'message': f'Policy {policy_arn} successfully attached to user {user_name}'
         })
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"AUDIT: IAM policy attachment failed by {user_email if 'user_email' in locals() else 'unknown'} - Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
