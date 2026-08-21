@@ -1,0 +1,54 @@
+# Checkmarx Scan Workflow
+# =======================
+# Runs Checkmarx SAST and SCA scanning as a standalone workflow .
+# Scans are skipped in merge queue (passthrough) since they were already validated on PR.
+#
+# Triggers:
+#   - Push to default branch: Full scan
+#   - Pull request: Full scan with PR decoration
+#   - Merge queue: Passthrough (scans validated on PR)
+#   - Schedule: Weekly scan (adjust cron as needed)
+#
+
+name: Checkmarx Scan
+run-name: "${{ github.event_name == 'pull_request' && format('🚧 PR #{0} — 🛡️ Scans — {1}', github.event.number, github.event.pull_request.title) || github.event_name == 'merge_group' && format('🚦 Merge Queue — 🛡️ Scans — #{0}', github.run_number) || github.event_name == 'schedule' && format('🕐 Scheduled — 🛡️ Scans — {0} #{1}', github.ref_name, github.run_number) || format('🛡️ Scans — {0} #{1}', github.ref_name, github.run_number) }}"
+
+on:
+  # Scan on push to default branch
+  push:
+    branches: main
+
+  # Manual trigger with skip option
+  workflow_dispatch:
+    inputs:
+      skip-checkmarx:
+        description: 'Skip Checkmarx scan'
+        type: boolean
+        default: false
+
+  # Weekly scheduled scan (Saturday at 5:15 PM UTC)
+  # Adjust timing to avoid peak hours
+  schedule:
+    - cron: '15 17 * * 6'
+
+jobs:
+  checkmarx:
+    name: Checkmarx One SAST and SCA
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkmarx One Scan
+        uses: checkmarx/ast-github-action@main
+        with:
+          base_uri: ${{ vars.CX_BASE_URI }}
+          cx_tenant: ${{ vars.CX_TENANT }}
+          cx_client_id: ${{ vars.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          project_name: ${{ vars.CX_PROJECT_NAME }}
+
+          scan_params: >
+            --tags "CICD,TCKey01714,UTR07419"
+            --project-groups "PBB - Digital Platforms Zero Billing"
