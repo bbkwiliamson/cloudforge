@@ -165,10 +165,12 @@ async function generateImplementationPlan() {
         
         const userInfo = JSON.parse(localStorage.getItem('userInfo'));
         const savedContext = getDeploymentContext();
-        const stackName = document.getElementById('stackName')?.value || document.getElementById('deleteStackName')?.value || savedContext?.stackName || 'N/A';
+        const scProductName = document.getElementById('scProductName')?.textContent?.replace(' (Recreate)', '') || '';
+        const scProvisionedName = document.getElementById('scProvisionedProductName')?.value || '';
+        const stackName = document.getElementById('stackName')?.value || document.getElementById('deleteStackName')?.value || scProvisionedName || scProductName || savedContext?.stackName || 'N/A';
         const accountId = document.getElementById('accountId')?.value || savedContext?.accountId || 'N/A';
         const region = document.getElementById('region')?.value || 'af-south-1';
-        const environment = document.getElementById('deployEnvironment')?.value || savedContext?.environment || 'PROD';
+        const environment = document.getElementById('deployEnvironment')?.value || document.getElementById('scEnvironment')?.value || savedContext?.environment || 'PROD';
         
         // Store context for later use
         if (stackName !== 'N/A') {
@@ -224,10 +226,12 @@ async function generateTestPlanDocument(crqPlan, workInfoType) {
     try {
         const userInfo = JSON.parse(localStorage.getItem('userInfo'));
         const savedContext = getDeploymentContext();
-        const stackName = document.getElementById('stackName')?.value || document.getElementById('deleteStackName')?.value || savedContext?.stackName || 'N/A';
+        const scProductName = document.getElementById('scProductName')?.textContent?.replace(' (Recreate)', '') || '';
+        const scProvisionedName = document.getElementById('scProvisionedProductName')?.value || '';
+        const stackName = document.getElementById('stackName')?.value || document.getElementById('deleteStackName')?.value || scProvisionedName || scProductName || savedContext?.stackName || 'N/A';
         const accountId = document.getElementById('accountId')?.value || savedContext?.accountId || 'N/A';
         const region = document.getElementById('region')?.value || 'af-south-1';
-        const environment = document.getElementById('deployEnvironment')?.value || savedContext?.environment || 'PROD';
+        const environment = document.getElementById('deployEnvironment')?.value || document.getElementById('scEnvironment')?.value || savedContext?.environment || 'PROD';
         
         // Store context for later use
         if (stackName !== 'N/A') {
@@ -439,7 +443,9 @@ async function updateCrqWork() {
     
     // Get deployment details for work notes
     const userInfo = JSON.parse(localStorage.getItem('userInfo'));
-    const stackName = isManualCrqUpdate ? 'Manual Update' : (document.getElementById('stackName')?.value || document.getElementById('deleteStackName')?.value || 'N/A');
+    const scProvisionedName = document.getElementById('scProvisionedProductName')?.value || '';
+    const scProductName = document.getElementById('scProductName')?.textContent?.replace(' (Recreate)', '') || '';
+    const stackName = isManualCrqUpdate ? 'Manual Update' : (document.getElementById('stackName')?.value || document.getElementById('deleteStackName')?.value || scProvisionedName || scProductName || 'N/A');
     const accountId = isManualCrqUpdate ? 'N/A' : (document.getElementById('accountId').value || 'N/A');
     const workNotes = `CloudForge ${crqPlan} - Implementation plan document attached for stack: ${stackName} in account: ${accountId}. Submitted by: ${userInfo?.data?.email || 'N/A'}`;
     
@@ -590,8 +596,6 @@ async function createCrqForDeployment() {
         const stackName = document.getElementById('stackName').value.trim();
         const region = document.getElementById('region').value;
         const accountId = document.getElementById('accountId').value;
-        const accessKeyId = document.getElementById('accessKeyId').value;
-        const secretAccessKey = document.getElementById('secretAccessKey').value;
         
         // Get user info
         const userInfo = localStorage.getItem('userInfo');
@@ -624,8 +628,7 @@ async function createCrqForDeployment() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 deploymentData,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
+                accountId
             })
         });
         

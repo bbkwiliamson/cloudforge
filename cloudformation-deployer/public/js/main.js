@@ -90,6 +90,8 @@ async function loadTemplate(templateName) {
         templateBody = '';
         currentTemplateName = getTemplateBaseName(templateName);
         updateTemplateSuffix();
+        window.templateCreatesS3Bucket = data.createsS3Bucket || false;
+        window.templateCreatesLambdaLayer = data.createsLambdaLayer || false;
         
         displayParameters(data.parameters);
         document.getElementById('parameters').style.display = 'block';
@@ -113,6 +115,8 @@ async function loadTemplateWithExistingParams(templateName, existingParams) {
         templateBody = '';  // Clear template body for pre-existing templates
         currentTemplateName = getTemplateBaseName(templateName);
         updateTemplateSuffix();
+        window.templateCreatesS3Bucket = data.createsS3Bucket || false;
+        window.templateCreatesLambdaLayer = data.createsLambdaLayer || false;
         
         displayParametersWithExisting(data.parameters, existingParams);
         document.getElementById('parameters').style.display = 'block';
@@ -285,7 +289,22 @@ function setupEventListeners() {
 }
 
 // Initialize event listeners when DOM is ready
-document.addEventListener('DOMContentLoaded', setupEventListeners);
+document.addEventListener('DOMContentLoaded', () => {
+    setupEventListeners();
+    loadVersion();
+});
+
+async function loadVersion() {
+    try {
+        const response = await fetch('/version');
+        const data = await response.json();
+        if (data.version) {
+            document.getElementById('versionBadge').textContent = `Version: ${data.version}`;
+        }
+    } catch (e) {
+        console.error('Could not load version:', e);
+    }
+}
 
 // Custom file upload handler
 document.getElementById('templateFile').addEventListener('change', async (e) => {
@@ -307,9 +326,12 @@ document.getElementById('templateFile').addEventListener('change', async (e) => 
             templateBody = data.templateBody;  // Store template content in memory
             currentTemplateName = getTemplateBaseName(file.name);
             updateTemplateSuffix();
+            window.templateCreatesS3Bucket = data.createsS3Bucket || false;
+            window.templateCreatesLambdaLayer = data.createsLambdaLayer || false;
             
             displayParameters(data.parameters);
             document.getElementById('parameters').style.display = 'block';
+            validateTemplateGuard(null, data.templateBody);
         } else {
             alert('Error parsing template: ' + data.error);
         }

@@ -1,62 +1,156 @@
 // AWS Configuration Management
+let connectionAuthorized = false;
+
+function isDirectKeysMode() {
+    const toggle = document.getElementById('authModeToggle');
+    return toggle && toggle.checked;
+}
+
+function onAuthModeToggle() {
+    const direct = isDirectKeysMode();
+    document.getElementById('accountIdSection').style.display = direct ? 'none' : '';
+    document.getElementById('credentialsSection').style.display = direct ? '' : 'none';
+    connectionAuthorized = false;
+    hideAccountTypeBadge();
+    validateAwsConfigForm();
+}
+
 function loadStoredData() {
-    // Load AWS config
     const awsData = getStoredData('awsConfig');
     if (awsData) {
-        document.getElementById('popupRegion').value = awsData.region || 'us-east-1';
-        document.getElementById('popupAccountId').value = awsData.accountId || '';
-        document.getElementById('popupAccessKeyId').value = awsData.accessKeyId || '';
-        document.getElementById('popupSecretAccessKey').value = awsData.secretAccessKey || '';
+        document.getElementById('popupRegion').value = awsData.region || 'af-south-1';
         
         // Also populate hidden fields
-        document.getElementById('region').value = awsData.region || 'us-east-1';
+        document.getElementById('region').value = awsData.region || 'af-south-1';
         document.getElementById('accountId').value = awsData.accountId || '';
-        document.getElementById('accessKeyId').value = awsData.accessKeyId || '';
-        document.getElementById('secretAccessKey').value = awsData.secretAccessKey || '';
+        
+        // Load accounts dropdown then set saved value
+        loadAccountDropdown(awsData.accountId);
         
         // Check account environment restrictions
         if (awsData.accountId) {
             checkAccountEnvironment(awsData.accountId);
         }
         
-        // Trigger refresh of AWS-dependent components after a short delay
-        // to ensure all DOM elements are ready
         setTimeout(() => {
             refreshAwsDependentComponents();
         }, 1000);
+    } else {
+        loadAccountDropdown();
     }
 }
 
+async function loadAccountDropdown(selectedAccountId) {
+    try {
+        const response = await fetch('/get-account-list');
+        const data = await response.json();
+        if (response.ok && data.accounts) {
+            window._accountList = data.accounts;
+            renderAccountDropdown(data.accounts);
+            if (selectedAccountId) {
+                const match = data.accounts.find(a => a.accountId === selectedAccountId);
+                if (match) {
+                    document.getElementById('popupAccountId').value = match.accountId;
+                    document.getElementById('accountSearchInput').value = match.description
+                        ? `${match.accountId} - ${match.description} (${match.environment})`
+                        : `${match.accountId} (${match.environment})`;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading account list:', error);
+    }
+    validateAwsConfigForm();
+}
+
+function renderAccountDropdown(accounts) {
+    const list = document.getElementById('accountDropdownList');
+    list.innerHTML = '';
+    accounts.forEach(acc => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding:8px 12px; cursor:pointer; border-bottom:1px solid #eee; color:#333;';
+        item.onmouseenter = () => item.style.background = '#e8f4fd';
+        item.onmouseleave = () => item.style.background = 'transparent';
+        const label = acc.description
+            ? `${acc.accountId} - ${acc.description} (${acc.environment})`
+            : `${acc.accountId} (${acc.environment})`;
+        item.textContent = label;
+        item.onclick = () => selectAccount(acc.accountId, label);
+        list.appendChild(item);
+    });
+}
+
+function filterAccountDropdown() {
+    const query = document.getElementById('accountSearchInput').value.trim();
+    const filtered = (window._accountList || []).filter(acc => {
+        const label = `${acc.accountId} ${acc.description || ''} ${acc.environment}`.toLowerCase();
+        return label.includes(query.toLowerCase());
+    });
+    
+    // Only show dropdown if user has typed at least 10 characters and there are matches
+    if (query.length >= 10 && filtered.length > 0) {
+        renderAccountDropdown(filtered);
+        toggleAccountDropdown(true);
+    } else {
+        toggleAccountDropdown(false);
+    }
+
+    // If input is a valid 12-digit account ID not in the list, accept it as non-prod
+    if (/^\d{12}$/.test(query)) {
+        document.getElementById('popupAccountId').value = query;
+    } else {
+        document.getElementById('popupAccountId').value = '';
+    }
+    connectionAuthorized = false;
+    hideAccountTypeBadge();
+    validateAwsConfigForm();
+}
+
+function selectAccount(accountId, label) {
+    document.getElementById('popupAccountId').value = accountId;
+    document.getElementById('accountSearchInput').value = label;
+    toggleAccountDropdown(false);
+    connectionAuthorized = false;
+    hideAccountTypeBadge();
+    validateAwsConfigForm();
+}
+
+function toggleAccountDropdown(show) {
+    const list = document.getElementById('accountDropdownList');
+    if (show === undefined) {
+        // Do nothing - no manual toggle allowed
+        return;
+    } else {
+        list.style.display = show ? 'block' : 'none';
+    }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const container = document.getElementById('accountDropdownContainer');
+    if (container && !container.contains(e.target)) {
+        toggleAccountDropdown(false);
+    }
+});
+
 function validateAwsConfigForm() {
-    const region = document.getElementById('popupRegion').value;
-    const accountId = document.getElementById('popupAccountId').value.trim();
-    const accessKeyId = document.getElementById('popupAccessKeyId').value.trim();
-    const secretAccessKey = document.getElementById('popupSecretAccessKey').value.trim();
-    
-    const hasCredentials = region && accessKeyId && secretAccessKey;
-    const isValid = hasCredentials && accountId;
-    
     const testBtn = document.getElementById('testCredentialsBtn');
     const saveBtn = document.getElementById('saveConfigBtn');
-    const accountField = document.getElementById('popupAccountId');
-    
-    // Test button: enabled when credentials are present
-    testBtn.disabled = !hasCredentials;
-    testBtn.style.opacity = hasCredentials ? '1' : '0.5';
-    
-    // Save button: only enabled when all fields are valid (after successful test)
-    saveBtn.disabled = !isValid;
-    saveBtn.style.opacity = isValid ? '1' : '0.5';
-    
-    // Account ID field: always readonly
-    accountField.readOnly = true;
-    accountField.style.backgroundColor = '#f5f5f5';
-    accountField.style.cursor = 'not-allowed';
-    
-    // Check account environment restrictions when account ID changes
-    if (accountId && accountId.length >= 12) {
-        checkAccountEnvironment(accountId);
+
+    let canTest = false;
+    if (isDirectKeysMode()) {
+        const creds = document.getElementById('awsCredentialsInput').value.trim();
+        canTest = creds.length > 0;
+    } else {
+        const accountId = document.getElementById('popupAccountId').value;
+        canTest = accountId && accountId.length >= 12;
+        if (canTest) checkAccountEnvironment(accountId);
     }
+
+    testBtn.disabled = !canTest;
+    testBtn.style.opacity = canTest ? '1' : '0.5';
+    saveBtn.disabled = !connectionAuthorized;
+    saveBtn.style.opacity = connectionAuthorized ? '1' : '0.5';
 }
 
 async function checkAccountEnvironment(accountId) {
@@ -78,9 +172,30 @@ async function checkAccountEnvironment(accountId) {
     }
 }
 
+function updateAccountTypeBadge(isProd) {
+    const badge = document.getElementById('accountTypeBadge');
+    if (!badge) return;
+    
+    const accountId = document.getElementById('popupAccountId').value || document.getElementById('accountId').value;
+    const accounts = window._accountList || [];
+    const match = accounts.find(a => a.accountId === accountId);
+    const description = match && match.description ? match.description : (isProd ? 'PROD' : 'Dev/UAT');
+    
+    badge.style.display = 'inline-block';
+    badge.textContent = `AWS Account: ${accountId} - ${description}`;
+    if (isProd) {
+        badge.style.background = '#28a745';
+        badge.style.color = 'white';
+    } else {
+        badge.style.background = '#333';
+        badge.style.color = 'white';
+    }
+}
+
 function openAwsConfig() {
     document.getElementById('awsConfigPopup').style.display = 'block';
-    validateAwsConfigForm();
+    onAuthModeToggle();
+    loadAccountDropdown(document.getElementById('accountId').value);
 }
 
 function closeAwsConfig() {
@@ -90,8 +205,6 @@ function closeAwsConfig() {
 function saveAwsConfig() {
     const region = document.getElementById('popupRegion').value;
     const accountId = document.getElementById('popupAccountId').value;
-    const accessKeyId = document.getElementById('popupAccessKeyId').value;
-    const secretAccessKey = document.getElementById('popupSecretAccessKey').value;
     
     // Check account environment before saving
     checkAccountEnvironment(accountId);
@@ -99,22 +212,17 @@ function saveAwsConfig() {
     // Save to localStorage
     storeData('awsConfig', {
         region: region,
-        accountId: accountId,
-        accessKeyId: accessKeyId,
-        secretAccessKey: secretAccessKey
+        accountId: accountId
     });
     
     // Save to main form fields
     document.getElementById('region').value = region;
     document.getElementById('accountId').value = accountId;
-    document.getElementById('accessKeyId').value = accessKeyId;
-    document.getElementById('secretAccessKey').value = secretAccessKey;
     
     // Close popup
     closeAwsConfig();
     showAlert('AWS configuration saved successfully!', 'success');
     
-    // Refresh AWS-dependent UI components after the save message disappears
     setTimeout(() => {
         refreshAwsDependentComponents();
     }, 2500);
@@ -122,18 +230,16 @@ function saveAwsConfig() {
 
 // Utility function to check if AWS credentials are available
 function hasValidAwsCredentials() {
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     const region = document.getElementById('region').value;
     
-    return accessKeyId && secretAccessKey && region;
+    return accountId && region;
 }
 
 // Function to refresh all AWS-dependent UI components
 function refreshAwsDependentComponents() {
-    // Check if we have valid credentials first
     if (!hasValidAwsCredentials()) {
-        console.log('No valid AWS credentials found, skipping resource refresh');
+        console.log('No valid AWS config found, skipping resource refresh');
         return;
     }
     
@@ -183,7 +289,6 @@ function refreshAwsDependentComponents() {
         setTimeout(() => loadSecretsManagerSecrets(paramKey), 500);
     });
     
-    // Show completion message after all resources are loaded
     setTimeout(() => {
         showAlert('AWS resources refreshed successfully!', 'success');
     }, 1000);
@@ -191,7 +296,6 @@ function refreshAwsDependentComponents() {
 
 // Function to clear cached AWS resources
 function clearAwsResourceCache() {
-    // Clear all cached AWS resources from global variables
     Object.keys(window).forEach(key => {
         if (key.startsWith('roles_') || 
             key.startsWith('rdsInstances_') || 
@@ -202,50 +306,43 @@ function clearAwsResourceCache() {
     });
 }
 
+function hideAccountTypeBadge() {
+    const badge = document.getElementById('accountTypeBadge');
+    if (badge) badge.style.display = 'none';
+}
+
 function clearAwsConfig() {
-    document.getElementById('popupRegion').value = 'us-east-1';
+    document.getElementById('popupRegion').value = 'af-south-1';
     document.getElementById('popupAccountId').value = '';
-    document.getElementById('popupAccessKeyId').value = '';
-    document.getElementById('popupSecretAccessKey').value = '';
-    
-    // Clear from localStorage
+    document.getElementById('accountSearchInput').value = '';
+    document.getElementById('awsCredentialsInput').value = '';
     localStorage.removeItem('awsConfig');
-    
-    // Clear hidden fields
     document.getElementById('region').value = '';
     document.getElementById('accountId').value = '';
-    document.getElementById('accessKeyId').value = '';
-    document.getElementById('secretAccessKey').value = '';
-    
-    // Clear AWS resource cache and reset dropdowns
+    connectionAuthorized = false;
+    hideAccountTypeBadge();
     clearAwsResourceCache();
     resetAwsDependentComponents();
-    
-    // Re-validate form to update button states
     validateAwsConfigForm();
 }
 
 // Function to reset AWS-dependent components to initial state
 function resetAwsDependentComponents() {
-    // Reset VPC dropdowns
     const vpcSelects = document.querySelectorAll('select[id^="param-"][id*="VPC"], select[id^="param-"][id*="vpc"]');
     vpcSelects.forEach(select => {
-        select.innerHTML = '<option value="">Configure AWS credentials first</option>';
+        select.innerHTML = '<option value="">Configure AWS account first</option>';
     });
     
-    // Reset subnet checkboxes
     const subnetContainers = document.querySelectorAll('[id^="subnet-checkboxes-"]');
     subnetContainers.forEach(container => {
-        container.innerHTML = '<div style="color: #666; font-style: italic;">Configure AWS credentials first</div>';
+        container.innerHTML = '<div style="color: #666; font-style: italic;">Configure AWS account first</div>';
     });
     
-    // Reset Lambda layer dropdowns
     const layerSelects = document.querySelectorAll('select[id^="layer-selector-"]');
     layerSelects.forEach(select => {
-        select.innerHTML = '<option value="">Configure AWS credentials first</option>';
+        select.innerHTML = '<option value="">Configure AWS account first</option>';
     });
     
-    // Clear dropdown contents for other AWS resources
     const dropdowns = document.querySelectorAll('[id$="-dropdown"]');
     dropdowns.forEach(dropdown => {
         dropdown.style.display = 'none';
@@ -255,44 +352,53 @@ function resetAwsDependentComponents() {
 
 async function testCredentialsFromPopup() {
     const region = document.getElementById('popupRegion').value;
-    const accessKeyId = document.getElementById('popupAccessKeyId').value;
-    const secretAccessKey = document.getElementById('popupSecretAccessKey').value;
-    
-    if (!accessKeyId || !secretAccessKey) {
-        showAlert('Please enter AWS credentials first', 'warning');
-        return;
-    }
-    
-    try {
-        let decodedAccessKey, decodedSecretKey;
-        try {
-            decodedAccessKey = atob(accessKeyId);
-            decodedSecretKey = atob(secretAccessKey);
-        } catch (e) {
-            showAlert('Invalid base64 encoding in credentials', 'error');
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    const userEmail = userInfo.data?.email || '';
+    connectionAuthorized = false;
+
+    let payload;
+    if (isDirectKeysMode()) {
+        const creds = document.getElementById('awsCredentialsInput').value.trim();
+        if (!creds) {
+            showAlert('Please enter base64 encoded credentials', 'warning');
             return;
         }
-        
+        payload = { region, credentials: creds, userEmail };
+    } else {
+        const accountId = document.getElementById('popupAccountId').value;
+        if (!accountId || accountId.length < 12) {
+            showAlert('Please enter a valid AWS Account ID (12 digits)', 'warning');
+            return;
+        }
+        payload = { region, accountId, userEmail };
+    }
+
+    try {
         const response = await fetch('/test-credentials', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: decodedAccessKey,
-                secretAccessKey: decodedSecretKey
-            })
+            body: JSON.stringify(payload)
         });
-        
         const data = await response.json();
         if (response.ok) {
-            // Auto-populate Account ID
-            document.getElementById('popupAccountId').value = data.account;
+            connectionAuthorized = true;
+            // In direct-keys mode the account ID comes back from the ARN
+            if (isDirectKeysMode()) {
+                document.getElementById('popupAccountId').value = data.account;
+                document.getElementById('accountId').value = data.account;
+                checkAccountEnvironment(data.account);
+            }
             validateAwsConfigForm();
-            showAlert(`Credentials valid! Account: ${data.account}, User: ${data.user}`, 'success');
+            updateAccountTypeBadge(window.isProdAccount);
+            showAlert(`Connection successful! Account: ${data.account}, Role: ${data.user}`, 'success');
         } else {
-            showAlert('Credentials invalid: ' + data.error, 'error');
+            validateAwsConfigForm();
+            hideAccountTypeBadge();
+            showAlert('Connection failed: ' + data.error, 'error');
         }
     } catch (error) {
-        showAlert('Error testing credentials: ' + error.message, 'error');
+        validateAwsConfigForm();
+        hideAccountTypeBadge();
+        showAlert('Error testing connection: ' + error.message, 'error');
     }
 }

@@ -57,14 +57,13 @@ function makeDraggable(windowId, headerId) {
 
 async function loadVpcHelperVpcs() {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
     try {
         const response = await fetch('/vpcs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ region, accessKeyId: atob(accessKeyId), secretAccessKey: atob(secretAccessKey) })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -97,14 +96,13 @@ async function loadVpcHelperSubnets() {
     }
     
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
     try {
         const response = await fetch('/subnets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ vpcId, region, accessKeyId: atob(accessKeyId), secretAccessKey: atob(secretAccessKey) })
+            body: JSON.stringify({ vpcId, region, accountId })
         });
         
         const data = await response.json();
@@ -139,20 +137,19 @@ async function showVpcDetails() {
     const selectedSubnets = Array.from(document.querySelectorAll('#vpcHelperSubnets input:checked')).map(cb => cb.value);
     
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
     try {
         const [vpcResponse, subnetsResponse] = await Promise.all([
             fetch('/vpc-details', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vpcId, region, accessKeyId: atob(accessKeyId), secretAccessKey: atob(secretAccessKey) })
+                body: JSON.stringify({ vpcId, region, accountId })
             }),
             fetch('/subnets', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vpcId, region, accessKeyId: atob(accessKeyId), secretAccessKey: atob(secretAccessKey) })
+                body: JSON.stringify({ vpcId, region, accountId })
             })
         ]);
         

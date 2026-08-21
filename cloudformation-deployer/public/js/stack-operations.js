@@ -29,11 +29,15 @@ async function deployStack() {
     
     const region = document.getElementById('region').value;
     const accountId = document.getElementById('accountId').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
     
-    if (!stackName || !accessKeyId || !secretAccessKey) {
-        showAlert('Please configure AWS credentials and provide stack name', 'warning');
+    if (!stackName || !accountId) {
+        showAlert('Please configure AWS account and provide stack name', 'warning');
+        return;
+    }
+    
+    // Block deployment if guard HIGH findings exist
+    if (window.guardPassed === false) {
+        showAlert('Please remediate the Guard rules HIGH RISK findings in order to proceed', 'error');
         return;
     }
     
@@ -214,8 +218,6 @@ async function executeStackDeployment() {
     const stackName = document.getElementById('stackName').value.trim();
     const region = document.getElementById('region').value;
     const accountId = document.getElementById('accountId').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
     
     const userInfo = localStorage.getItem('userInfo');
     let userData = null;
@@ -238,28 +240,17 @@ async function executeStackDeployment() {
     });
     
     try {
-        let decodedAccessKey, decodedSecretKey;
-        try {
-            decodedAccessKey = atob(accessKeyId);
-            decodedSecretKey = atob(secretAccessKey);
-        } catch (e) {
-            showAlert('Invalid base64 encoding in credentials', 'error');
-            return;
-        }
-        
         const endpoint = deploymentMode === 'update' ? '/update-stack' : '/deploy';
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 stackName,
-                templatePath: templateBody ? null : templatePath,  // Only send path if not custom upload
-                templateBody: templateBody || null,  // Send template content for custom uploads
+                templatePath: templateBody ? null : templatePath,
+                templateBody: templateBody || null,
                 parameters,
                 region,
                 accountId,
-                accessKeyId: decodedAccessKey,
-                secretAccessKey: decodedSecretKey,
                 userEmail: userData?.email || 'unknown',
                 rteEmail: rte || null,
                 environment: environment || 'NON-PROD',
@@ -287,7 +278,7 @@ async function executeStackDeployment() {
             resultDiv.innerHTML = successMessage;
             
             // Start monitoring stack status in popup
-            openStackMonitoringDialog(stackName, region, decodedAccessKey, decodedSecretKey, deploymentMode);
+            openStackMonitoringDialog(stackName, region, accountId, deploymentMode);
             
             setTimeout(() => {
                 resultDiv.innerHTML = '';
@@ -298,7 +289,7 @@ async function executeStackDeployment() {
                 resultDiv.innerHTML = `<p style="color: #fd7e14;">⚠️ Stack is in a failed state and cannot be updated. You must delete it first. Opening stack details...</p>`;
                 
                 setTimeout(() => {
-                    openStackMonitoringDialog(result.stackName, region, decodedAccessKey, decodedSecretKey, 'rollback');
+                    openStackMonitoringDialog(result.stackName, region, accountId, 'rollback');
                     resultDiv.innerHTML = '';
                 }, 2000);
             } else {
@@ -318,12 +309,11 @@ async function executeStackDeployment() {
 async function searchStack() {
     const stackName = document.getElementById('stackSearchName').value;
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     const templateSelector = document.getElementById('templateSelector');
     
-    if (!stackName || !accessKeyId || !secretAccessKey) {
-        showAlert('Please provide stack name and AWS credentials', 'warning');
+    if (!stackName || !accountId) {
+        showAlert('Please provide stack name and configure AWS account', 'warning');
         return;
     }
     
@@ -333,32 +323,13 @@ async function searchStack() {
     }
     
     try {
-        let decodedAccessKey, decodedSecretKey;
-        try {
-            decodedAccessKey = atob(accessKeyId);
-            decodedSecretKey = atob(secretAccessKey);
-            
-            if (!decodedAccessKey.startsWith('AKIA') || decodedAccessKey.length !== 20) {
-                alert('Invalid Access Key format after decoding');
-                return;
-            }
-            if (decodedSecretKey.length !== 40) {
-                alert('Invalid Secret Key length after decoding');
-                return;
-            }
-        } catch (e) {
-            alert('Invalid base64 encoding in credentials');
-            return;
-        }
-        
         const response = await fetch('/search-stack', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 stackName,
                 region,
-                accessKeyId: decodedAccessKey,
-                secretAccessKey: decodedSecretKey
+                accountId
             })
         });
         
@@ -371,16 +342,22 @@ async function searchStack() {
         // Get the selected template's parameters
         let templateData;
         if (templateSelector.value === 'custom') {
-            const currentParams = {};
-            document.querySelectorAll('[id^="param-"]').forEach(input => {
-                const key = input.id.replace('param-', '');
-                const paramDiv = input.closest('.parameter');
-                if (paramDiv) {
-                    const label = paramDiv.querySelector('label').textContent.replace(':', '');
-                    currentParams[label] = { Type: 'String', Default: '' };
-                }
+            if (!templateBody) {
+                showAlert('Please upload a template file first', 'warning');
+                return;
+            }
+            const formData = new FormData();
+            const blob = new Blob([templateBody], { type: 'text/plain' });
+            formData.append('template', blob, 'template.yaml');
+            const templateResponse = await fetch('/parse-template', {
+                method: 'POST',
+                body: formData
             });
-            templateData = { parameters: currentParams };
+            templateData = await templateResponse.json();
+            if (!templateResponse.ok) {
+                showAlert('Error parsing template: ' + templateData.error, 'error');
+                return;
+            }
         } else {
             const templateResponse = await fetch('/load-template', {
                 method: 'POST',
@@ -420,11 +397,10 @@ async function filterStacks() {
     
     stackFilterTimeout = setTimeout(async () => {
         const region = document.getElementById('region').value;
-        const accessKeyId = document.getElementById('accessKeyId').value;
-        const secretAccessKey = document.getElementById('secretAccessKey').value;
+        const accountId = document.getElementById('accountId').value;
         
-        if (!accessKeyId || !secretAccessKey) {
-            dropdown.innerHTML = '<div style="padding: 8px; color: #666;">Configure AWS credentials first</div>';
+        if (!accountId) {
+            dropdown.innerHTML = '<div style="padding: 8px; color: #666;">Configure AWS account first</div>';
             dropdown.style.display = 'block';
             return;
         }
@@ -439,8 +415,7 @@ async function filterStacks() {
                 body: JSON.stringify({
                     query,
                     region,
-                    accessKeyId: atob(accessKeyId),
-                    secretAccessKey: atob(secretAccessKey)
+                    accountId
                 })
             });
             
@@ -488,11 +463,10 @@ async function filterDeleteStacks() {
     
     deleteFilterTimeout = setTimeout(async () => {
         const region = document.getElementById('region').value;
-        const accessKeyId = document.getElementById('accessKeyId').value;
-        const secretAccessKey = document.getElementById('secretAccessKey').value;
+        const accountId = document.getElementById('accountId').value;
         
-        if (!accessKeyId || !secretAccessKey) {
-            dropdown.innerHTML = '<div style="padding: 8px; color: #666;">Configure AWS credentials first</div>';
+        if (!accountId) {
+            dropdown.innerHTML = '<div style="padding: 8px; color: #666;">Configure AWS account first</div>';
             dropdown.style.display = 'block';
             return;
         }
@@ -507,8 +481,7 @@ async function filterDeleteStacks() {
                 body: JSON.stringify({
                     query,
                     region,
-                    accessKeyId: atob(accessKeyId),
-                    secretAccessKey: atob(secretAccessKey)
+                    accountId
                 })
             });
             
@@ -546,11 +519,10 @@ async function confirmDeleteStack() {
     }
     
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) {
-        showAlert('Please configure AWS credentials', 'warning');
+    if (!accountId) {
+        showAlert('Please configure AWS account', 'warning');
         return;
     }
     
@@ -561,8 +533,7 @@ async function confirmDeleteStack() {
             body: JSON.stringify({
                 stackName,
                 region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
+                accountId
             })
         });
         
@@ -753,8 +724,6 @@ async function executeStackDeletion() {
     const stackName = document.getElementById('deleteStackName').value.trim();
     const region = document.getElementById('region').value;
     const accountId = document.getElementById('accountId').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
     
     const userInfo = localStorage.getItem('userInfo');
     let userData = null;
@@ -776,8 +745,6 @@ async function executeStackDeletion() {
                 stackName,
                 region,
                 accountId,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey),
                 userEmail: userData?.email || 'unknown',
                 rteEmail: rte || null,
                 environment: environment || 'NON-PROD',
@@ -805,7 +772,7 @@ async function executeStackDeletion() {
             resultDiv.innerHTML = successMessage;
             
             // Start monitoring stack deletion status in popup
-            openStackMonitoringDialog(stackName, region, atob(accessKeyId), atob(secretAccessKey), 'delete');
+            openStackMonitoringDialog(stackName, region, accountId, 'delete');
             
             setTimeout(() => {
                 resultDiv.innerHTML = '';
@@ -823,4 +790,158 @@ async function executeStackDeletion() {
         closeDeleteConfirm();
         showAlert('Error: ' + error.message, 'error');
     }
+}
+
+
+// Stack List Feature
+let _stackListData = [];
+
+async function openStackList() {
+    const region = document.getElementById('region').value;
+    const accountId = document.getElementById('accountId').value;
+
+    if (!region || !accountId) {
+        showAlert('Please configure AWS account first using AWS Connect', 'warning');
+        return;
+    }
+
+    document.getElementById('stackListTitle').textContent = `AWS Stack List for region: ${region}`;
+    document.getElementById('stackListContent').innerHTML = '<div style="text-align: center; padding: 20px;"><div class="spinner"></div><p>Loading stacks...</p></div>';
+    document.getElementById('stackListSearch').value = '';
+    document.getElementById('stackListPopup').style.display = 'block';
+
+    try {
+        const response = await fetch('/list-stacks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region, accountId, query: '' })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.stacks) {
+            _stackListData = data.stacks;
+            renderStackList(_stackListData);
+        } else {
+            document.getElementById('stackListContent').innerHTML = `<p style="color: red;">Error: ${data.error || 'Failed to load stacks'}</p>`;
+        }
+    } catch (error) {
+        document.getElementById('stackListContent').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+    }
+}
+
+function filterStackList() {
+    const query = document.getElementById('stackListSearch').value.toLowerCase();
+    const filtered = _stackListData.filter(stack => stack.name.toLowerCase().includes(query));
+    renderStackList(filtered);
+}
+
+function renderStackList(stacks) {
+    let html = `<p style="margin-bottom: 10px; color: #666;">Found ${stacks.length} stack(s)</p>`;
+    stacks.forEach((stack, index) => {
+        const statusColor = stack.status.includes('COMPLETE') && !stack.status.includes('ROLLBACK') ? '#28a745' : '#dc3545';
+        html += `<div style="margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9;">
+            <div onclick="toggleStackResources(${index}, '${stack.name}')" style="padding: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <strong>${stack.name}</strong>
+                <span style="color: ${statusColor}; font-size: 12px;">${stack.status}</span>
+            </div>
+            <div id="stackResources-${index}" style="display: none; padding: 10px; border-top: 1px solid #ddd; background: white;"></div>
+        </div>`;
+    });
+    document.getElementById('stackListContent').innerHTML = html;
+}
+
+async function toggleStackResources(index, stackName) {
+    const div = document.getElementById(`stackResources-${index}`);
+    
+    if (div.style.display === 'block') {
+        div.style.display = 'none';
+        return;
+    }
+
+    div.innerHTML = '<p style="color: #666;">Loading resources...</p>';
+    div.style.display = 'block';
+
+    const region = document.getElementById('region').value;
+    const accountId = document.getElementById('accountId').value;
+
+    try {
+        const response = await fetch('/get-stack-resources', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region, accountId, stackName })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.resources) {
+            let html = `<div style="margin-bottom: 8px;"><button onclick="viewStackTemplate('${stackName}')" style="background: #007cba; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;">📄 View Template</button></div>`;
+            html += '<table style="width: 100%; font-size: 12px; border-collapse: collapse;">';
+            html += '<tr style="background: #001a4d; color: white;"><th style="padding: 6px; text-align: left;">Type</th><th style="padding: 6px; text-align: left;">Logical ID</th><th style="padding: 6px; text-align: left;">Physical ID / ARN</th><th style="padding: 6px; text-align: left;">Status</th></tr>';
+            data.resources.forEach(r => {
+                const statusColor = r.status.includes('COMPLETE') ? '#28a745' : '#dc3545';
+                html += `<tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 6px; word-break: break-all;">${r.type}</td>
+                    <td style="padding: 6px;">${r.logicalId}</td>
+                    <td style="padding: 6px; word-break: break-all; max-width: 250px;">${r.physicalId}</td>
+                    <td style="padding: 6px; color: ${statusColor};">${r.status}</td>
+                </tr>`;
+            });
+            html += '</table>';
+            div.innerHTML = html;
+        } else {
+            div.innerHTML = `<p style="color: red;">Error: ${data.error || 'Failed to load resources'}</p>`;
+        }
+    } catch (error) {
+        div.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+    }
+}
+
+async function viewStackTemplate(stackName) {
+    const region = document.getElementById('region').value;
+    const accountId = document.getElementById('accountId').value;
+
+    // Create popup if it doesn't exist
+    if (!document.getElementById('stackTemplatePopup')) {
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="popup-overlay" id="stackTemplatePopup" style="display:none; z-index: 10000;">
+                <div class="popup" style="width: 70%; max-width: 900px; height: 80vh; display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 60px 25px rgba(0, 124, 186, 0.4), 0 0 120px 50px rgba(0, 124, 186, 0.2), 0 0 180px 80px rgba(0, 124, 186, 0.1);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #ddd;">
+                        <h3 id="stackTemplateTitle" style="margin: 0; color: #003087;">Stack Template</h3>
+                        <button onclick="closeStackTemplate()" style="background: #dc3545; border: none; color: white; font-size: 18px; cursor: pointer; border-radius: 4px; padding: 2px 8px;">&times;</button>
+                    </div>
+                    <div id="stackTemplateBody" style="flex: 1; overflow: auto; background: white; padding: 16px; margin: 0;">
+                    </div>
+                </div>
+            </div>
+        `);
+    }
+
+    document.getElementById('stackTemplateTitle').textContent = `Template: ${stackName}`;
+    document.getElementById('stackTemplateBody').innerHTML = '<p style="color: #666;">Loading template...</p>';
+    document.getElementById('stackTemplatePopup').style.display = 'block';
+
+    try {
+        const response = await fetch('/get-stack-template', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region, accountId, stackName })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.template) {
+            const templateContent = typeof data.template === 'object' ? JSON.stringify(data.template, null, 2) : data.template;
+            document.getElementById('stackTemplateBody').innerHTML = `<pre style="margin:0;color:#333;font-size:13px;font-family:monospace;white-space:pre-wrap;">${templateContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+        } else {
+            document.getElementById('stackTemplateBody').innerHTML = `<p style="color: #dc3545;">Error: ${data.error || 'Failed to load template'}</p>`;
+        }
+    } catch (error) {
+        document.getElementById('stackTemplateBody').innerHTML = `<p style="color: #dc3545;">Error: ${error.message}</p>`;
+    }
+}
+
+function closeStackTemplate() {
+    document.getElementById('stackTemplatePopup').style.display = 'none';
+}
+
+function closeStackList() {
+    document.getElementById('stackListPopup').style.display = 'none';
 }

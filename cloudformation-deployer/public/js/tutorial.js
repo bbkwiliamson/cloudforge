@@ -3,7 +3,7 @@ let currentTutorialStep = 0;
 const tutorialSteps = [
     {
         target: '.test-credentials-container button[onclick="openAwsConfig()"]',
-        title: 'AWS Configuration',
+        title: 'AWS Connect',
         message: 'This is for AWS account credentials and you must configure before anything else could function',
         position: 'bottom'
     },
@@ -15,14 +15,20 @@ const tutorialSteps = [
     },
     {
         target: 'button[onclick="openVpcHelper()"]',
-        title: 'VPC Helper',
-        message: 'To choose and list everything related to VPC',
+        title: 'VPC Selector',
+        message: 'To choose and list everything related to VPC and Subnets',
         position: 'right'
     },
     {
         target: 'button[onclick="openITSM()"][style*="#6f42c1"]',
         title: 'ITSM Access',
         message: 'For accessing ITSM CRQ site',
+        position: 'right'
+    },
+    {
+        target: 'button[onclick="openStackList()"]',
+        title: 'Stack List',
+        message: 'View all CloudFormation stacks deployed in the connected AWS account and their resources',
         position: 'right'
     }
 ];

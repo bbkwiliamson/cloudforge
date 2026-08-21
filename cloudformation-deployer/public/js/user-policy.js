@@ -6,9 +6,7 @@ let isUserPolicyAuthorized = false;
 function getAwsConfig() {
     return {
         region: document.getElementById('region').value,
-        accountId: document.getElementById('accountId').value,
-        accessKeyId: atob(document.getElementById('accessKeyId').value || ''),
-        secretAccessKey: atob(document.getElementById('secretAccessKey').value || '')
+        accountId: document.getElementById('accountId').value
     };
 }
 
@@ -48,8 +46,8 @@ function openUserPolicy() {
         return;
     }
     const awsConfig = getAwsConfig();
-    if (!awsConfig.region || !awsConfig.accessKeyId || !awsConfig.secretAccessKey) {
-        showAlert('Please configure AWS credentials first', 'error');
+    if (!awsConfig.region || !awsConfig.accountId) {
+        showAlert('Please configure AWS account first', 'error');
         return;
     }
     
@@ -79,8 +77,7 @@ async function loadIamUsers() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 region: awsConfig.region,
-                accessKeyId: awsConfig.accessKeyId,
-                secretAccessKey: awsConfig.secretAccessKey
+                accountId: awsConfig.accountId
             })
         });
         
@@ -111,8 +108,7 @@ async function loadIamPolicies() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 region: awsConfig.region,
-                accessKeyId: awsConfig.accessKeyId,
-                secretAccessKey: awsConfig.secretAccessKey,
+                accountId: awsConfig.accountId,
                 query: ''
             })
         });
@@ -204,10 +200,8 @@ async function attachUserPolicy() {
                 userName,
                 policyArn,
                 region: awsConfig.region,
-                accessKeyId: awsConfig.accessKeyId,
-                secretAccessKey: awsConfig.secretAccessKey,
-                userEmail: userInfo.data?.email || 'unknown',
-                accountId: awsConfig.accountId
+                accountId: awsConfig.accountId,
+                userEmail: userInfo.data?.email || 'unknown'
             })
         });
         

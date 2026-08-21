@@ -15,15 +15,21 @@ function displayParametersWithExisting(parameters, existingParams) {
     
     // Define custom parameter order
     const paramOrder = ['GroupName', 'EnvironmentName', 'VenafiRoleArn', 'VPC', 'SubnetIds'];
-    
+
+    const getParamIndex = (key) => {
+        const exact = paramOrder.indexOf(key);
+        if (exact !== -1) return exact;
+        // Treat any subnet-like key as if it were SubnetIds (index 4), always after VPC
+        if (key.toLowerCase().includes('subnet')) return paramOrder.indexOf('SubnetIds');
+        return -1;
+    };
+
     // Sort parameters by custom order, then alphabetically
     paramEntries.sort(([keyA], [keyB]) => {
-        const indexA = paramOrder.indexOf(keyA);
-        const indexB = paramOrder.indexOf(keyB);
-        
-        if (indexA !== -1 && indexB !== -1) {
-            return indexA - indexB;
-        }
+        const indexA = getParamIndex(keyA);
+        const indexB = getParamIndex(keyB);
+
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
         if (indexA !== -1) return -1;
         if (indexB !== -1) return 1;
         return keyA.localeCompare(keyB);
@@ -42,7 +48,20 @@ function displayParametersWithExisting(parameters, existingParams) {
     }
     
     parameterGroups = [];
-    
+
+    // Keep VPC and subnet fields together in the same group
+    const vpcIndex = paramEntries.findIndex(([k]) => k.toLowerCase().includes('vpc'));
+    const subnetIndex = paramEntries.findIndex(([k]) => k.toLowerCase().includes('subnet'));
+    if (vpcIndex !== -1 && subnetIndex !== -1) {
+        const vpcGroup = Math.floor(vpcIndex / 3);
+        const subnetGroup = Math.floor(subnetIndex / 3);
+        if (vpcGroup !== subnetGroup) {
+            // Move subnet entry to immediately follow VPC entry
+            const [subnetEntry] = paramEntries.splice(subnetIndex, 1);
+            paramEntries.splice(vpcIndex + 1, 0, subnetEntry);
+        }
+    }
+
     for (let i = 0; i < paramEntries.length; i += 3) {
         parameterGroups.push(paramEntries.slice(i, i + 3));
     }
@@ -57,11 +76,22 @@ function displayParametersWithExisting(parameters, existingParams) {
             div.className = 'parameter';
             const description = param && param.Description ? param.Description : '';
             const existingValue = existingParams[key] || '';
-            // Template default takes precedence, then existing stack value, then empty
-            const defaultValue = (param && param.Default) ? param.Default : existingValue;
+            // Existing stack value takes precedence over template default for updates
+            const defaultValue = existingValue || (param && param.Default ? param.Default : '');
             
+            // Special handling for EC2 Instance parameters
+            if ((param && param.Type === 'AWS::EC2::Instance::Id') || key === 'InstanceId') {
+                div.innerHTML = `
+                    <label>${key}:</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required oninput="filterEc2Instances('${key}')" style="flex: 1;">
+                        <button type="button" onclick="showAllEc2Instances('${key}')" style="background: #007cba; color: white; border: none; padding: 8px 12px; margin-left: 5px; border-radius: 4px; cursor: pointer; font-size: 12px;">▼</button>
+                        <div id="ec2-dropdown-${key}" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 8000;"></div>
+                    </div>
+                `;
+                setTimeout(() => loadEc2Instances(key), 100);
             // Special handling for VPC parameters
-            if (param && param.Type === 'AWS::EC2::VPC::Id' || key.toLowerCase() === 'vpc') {
+            } else if ((param && param.Type === 'AWS::EC2::VPC::Id') || key.toLowerCase().includes('vpc')) {
                 div.innerHTML = `
                     <label>${key}:</label>
                     <select id="param-${key}" required onchange="onVpcChange('${key}')">
@@ -85,11 +115,26 @@ function displayParametersWithExisting(parameters, existingParams) {
                     <div id="sns-validation-${key}" style="font-size: 12px; margin-top: 5px;"></div>
                 `;
             } else if (key === 'BucketName') {
-                div.innerHTML = `
-                    <label>${key}:</label>
-                    <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required oninput="validateBucketName('${key}')">
-                    <div id="bucket-validation-${key}" style="font-size: 12px; margin-top: 5px;"></div>
-                `;
+                if (window.templateCreatesS3Bucket) {
+                    // Template creates a bucket - allow typing a custom name with validation
+                    div.innerHTML = `
+                        <label>${key}:</label>
+                        <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required oninput="validateBucketName('${key}')">
+                        <div id="bucket-validation-${key}" style="font-size: 12px; margin-top: 5px;"></div>
+                    `;
+                } else {
+                    // Template references an existing bucket - show dropdown
+                    div.innerHTML = `
+                        <label>${key}:</label>
+                        <div style="position: relative; display: flex; align-items: center;">
+                            <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required oninput="filterS3Buckets('${key}')" style="flex: 1;">
+                            <button type="button" onclick="showAllS3Buckets('${key}')" style="background: #007cba; color: white; border: none; padding: 8px 12px; margin-left: 5px; border-radius: 4px; cursor: pointer; font-size: 12px;">▼</button>
+                            <div id="s3-dropdown-${key}" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 8000;"></div>
+                        </div>
+                    `;
+                    setTimeout(() => loadS3Buckets(key), 100);
+                }
+            
             } else if (key === 'DatabaseIdentifier' || key.toLowerCase().includes('dbidentifier')) {
                 div.innerHTML = `
                     <label>${key}:</label>
@@ -100,6 +145,16 @@ function displayParametersWithExisting(parameters, existingParams) {
                     </div>
                 `;
                 setTimeout(() => loadRdsInstances(key), 100);
+            } else if (key === 'PrefixListId' || key.toLowerCase().includes('prefixlist')) {
+                div.innerHTML = `
+                    <label>${key}:</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required oninput="filterPrefixLists('${key}')" style="flex: 1;">
+                        <button type="button" onclick="showAllPrefixLists('${key}')" style="background: #007cba; color: white; border: none; padding: 8px 12px; margin-left: 5px; border-radius: 4px; cursor: pointer; font-size: 12px;">▼</button>
+                        <div id="prefixlist-dropdown-${key}" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 8000;"></div>
+                    </div>
+                `;
+                setTimeout(() => loadPrefixLists(key), 100);
             } else if (key === 'Role' || (key.toLowerCase().includes('role') && key !== 'VenafiRoleArn')) {
                 div.innerHTML = `
                     <label>${key}:</label>
@@ -140,15 +195,24 @@ function displayParametersWithExisting(parameters, existingParams) {
                 `;
                 setTimeout(() => loadIamRoles(key), 100);
             } else if (key === 'LayerName') {
-                div.innerHTML = `
-                    <label>${key}:</label>
-                    <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required readonly>
-                    <select id="layer-selector-${key}" onchange="selectLayer('${key}')">
-                        <option value="">Loading layers...</option>
-                    </select>
-                `;
-                // Load Lambda layers after creating the element
-                setTimeout(() => loadLambdaLayers(key, defaultValue), 100);
+                if (window.templateCreatesLambdaLayer) {
+                    // Template creates a layer - allow typing a custom name
+                    div.innerHTML = `
+                        <label>${key}:</label>
+                        <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required oninput="validateLayerName('${key}')">
+                        <div id="layer-validation-${key}" style="font-size: 12px; margin-top: 5px;"></div>
+                    `;
+                } else {
+                    // Template references an existing layer - show dropdown
+                    div.innerHTML = `
+                        <label>${key}:</label>
+                        <input type="text" id="param-${key}" placeholder="${description}" value="${defaultValue}" required readonly>
+                        <select id="layer-selector-${key}" onchange="selectLayer('${key}')">
+                            <option value="">Loading layers...</option>
+                        </select>
+                    `;
+                    setTimeout(() => loadLambdaLayers(key, defaultValue), 100);
+                }
             } else if (param && param.AllowedValues && Array.isArray(param.AllowedValues)) {
                 const options = param.AllowedValues.map(value => 
                     `<option value="${value}" ${value === defaultValue ? 'selected' : ''}>${value}</option>`
@@ -309,28 +373,19 @@ function onVpcChange(vpcParamKey) {
 // Load subnets for a specific VPC
 async function loadSubnets(paramKey, vpcId, selectedValues = []) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) {
+    if (!accountId) {
         const container = document.getElementById(`subnet-checkboxes-${paramKey}`);
-        container.innerHTML = '<div style="color: #666; font-style: italic;">Configure AWS credentials first</div>';
+        container.innerHTML = '<div style="color: #666; font-style: italic;">Configure AWS account first</div>';
         return;
     }
     
     try {
-        const decodedAccessKey = atob(accessKeyId);
-        const decodedSecretKey = atob(secretAccessKey);
-        
         const response = await fetch('/subnets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                vpcId,
-                region,
-                accessKeyId: decodedAccessKey,
-                secretAccessKey: decodedSecretKey
-            })
+            body: JSON.stringify({ vpcId, region, accountId })
         });
         
         const data = await response.json();
@@ -396,19 +451,16 @@ async function validateSnsTopicName(paramKey) {
         return;
     }
     
-    // Clear previous timeout
     if (snsValidationTimeout) {
         clearTimeout(snsValidationTimeout);
     }
     
-    // Debounce validation
     snsValidationTimeout = setTimeout(async () => {
         const region = document.getElementById('region').value;
-        const accessKeyId = document.getElementById('accessKeyId').value;
-        const secretAccessKey = document.getElementById('secretAccessKey').value;
+        const accountId = document.getElementById('accountId').value;
         
-        if (!accessKeyId || !secretAccessKey) {
-            validation.textContent = 'Configure AWS credentials to validate topic name';
+        if (!accountId) {
+            validation.textContent = 'Configure AWS account to validate topic name';
             validation.style.color = '#666';
             return;
         }
@@ -420,12 +472,7 @@ async function validateSnsTopicName(paramKey) {
             const response = await fetch('/check-sns-topic', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    topicName,
-                    region,
-                    accessKeyId: atob(accessKeyId),
-                    secretAccessKey: atob(secretAccessKey)
-                })
+                body: JSON.stringify({ topicName, region, accountId })
             });
             
             const data = await response.json();
@@ -452,6 +499,64 @@ async function validateSnsTopicName(paramKey) {
     }, 1000);
 }
 
+// Validate Lambda layer name availability
+let layerValidationTimeout;
+async function validateLayerName(paramKey) {
+    const input = document.getElementById(`param-${paramKey}`);
+    const validation = document.getElementById(`layer-validation-${paramKey}`);
+    const layerName = input.value.trim();
+    
+    if (!layerName) {
+        validation.textContent = '';
+        return;
+    }
+    
+    if (layerValidationTimeout) {
+        clearTimeout(layerValidationTimeout);
+    }
+    
+    layerValidationTimeout = setTimeout(async () => {
+        const region = document.getElementById('region').value;
+        const accountId = document.getElementById('accountId').value;
+        
+        if (!accountId) {
+            validation.textContent = 'Configure AWS account to validate layer name';
+            validation.style.color = '#666';
+            return;
+        }
+        
+        try {
+            validation.textContent = 'Checking layer name...';
+            validation.style.color = '#666';
+            
+            const response = await fetch('/check-layer-name', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ layerName, region, accountId })
+            });
+            
+            const data = await response.json();
+            if (response.ok) {
+                if (data.exists) {
+                    validation.textContent = '⚠️ Layer name already exists. A new version will be created on deployment.';
+                    validation.style.color = '#e67e22';
+                    input.style.borderColor = '#e67e22';
+                } else {
+                    validation.textContent = '✓ Layer name is available';
+                    validation.style.color = '#28a745';
+                    input.style.borderColor = '#28a745';
+                }
+            } else {
+                validation.textContent = 'Error checking layer name: ' + data.error;
+                validation.style.color = '#dc3545';
+            }
+        } catch (error) {
+            validation.textContent = 'Error checking layer name: ' + error.message;
+            validation.style.color = '#dc3545';
+        }
+    }, 1000);
+}
+
 // Validate S3 bucket name availability
 let bucketValidationTimeout;
 async function validateBucketName(paramKey) {
@@ -465,19 +570,16 @@ async function validateBucketName(paramKey) {
         return;
     }
     
-    // Clear previous timeout
     if (bucketValidationTimeout) {
         clearTimeout(bucketValidationTimeout);
     }
     
-    // Debounce validation
     bucketValidationTimeout = setTimeout(async () => {
         const region = document.getElementById('region').value;
-        const accessKeyId = document.getElementById('accessKeyId').value;
-        const secretAccessKey = document.getElementById('secretAccessKey').value;
+        const accountId = document.getElementById('accountId').value;
         
-        if (!accessKeyId || !secretAccessKey) {
-            validation.textContent = 'Configure AWS credentials to validate bucket name';
+        if (!accountId) {
+            validation.textContent = 'Configure AWS account to validate bucket name';
             validation.style.color = '#666';
             input.dataset.bucketValid = '';
             return;
@@ -490,26 +592,39 @@ async function validateBucketName(paramKey) {
             const response = await fetch('/check-bucket-name', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    bucketName,
-                    region,
-                    accessKeyId: atob(accessKeyId),
-                    secretAccessKey: atob(secretAccessKey)
-                })
+                body: JSON.stringify({ bucketName, region, accountId })
             });
             
             const data = await response.json();
             if (response.ok) {
                 if (data.available) {
-                    validation.textContent = '✓ Bucket name is available';
-                    validation.style.color = '#28a745';
-                    input.style.borderColor = '#28a745';
-                    input.dataset.bucketValid = 'true';
+                    if (window.templateCreatesS3Bucket) {
+                        // Template creates a bucket - name is available, good
+                        validation.textContent = '✓ Bucket name is available';
+                        validation.style.color = '#28a745';
+                        input.style.borderColor = '#28a745';
+                        input.dataset.bucketValid = 'true';
+                    } else {
+                        // Template references a bucket - warn that it doesn't exist
+                        validation.textContent = '⚠️ Bucket does not exist. Ensure the bucket is created before deployment.';
+                        validation.style.color = '#e67e22';
+                        input.style.borderColor = '#e67e22';
+                        input.dataset.bucketValid = 'true';
+                    }
                 } else {
-                    validation.textContent = '⚠️ Bucket name is not available globally. Please choose a different name.';
-                    validation.style.color = '#dc3545';
-                    input.style.borderColor = '#dc3545';
-                    input.dataset.bucketValid = 'false';
+                    if (window.templateCreatesS3Bucket) {
+                        // Template creates a bucket - block if name taken
+                        validation.textContent = '⚠️ Bucket name is not available globally. Please choose a different name.';
+                        validation.style.color = '#dc3545';
+                        input.style.borderColor = '#dc3545';
+                        input.dataset.bucketValid = 'false';
+                    } else {
+                        // Template only references a bucket - allow existing names
+                        validation.textContent = '✓ Bucket exists and can be referenced';
+                        validation.style.color = '#28a745';
+                        input.style.borderColor = '#28a745';
+                        input.dataset.bucketValid = 'true';
+                    }
                 }
             } else {
                 validation.textContent = 'Error checking bucket name: ' + data.error;
@@ -527,27 +642,19 @@ async function validateBucketName(paramKey) {
 // AWS resource loading functions
 async function loadVpcs(paramKey, selectedValue = '') {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) {
+    if (!accountId) {
         const selectElement = document.getElementById(`param-${paramKey}`);
-        selectElement.innerHTML = '<option value="">Configure AWS credentials first</option>';
+        selectElement.innerHTML = '<option value="">Configure AWS account first</option>';
         return;
     }
     
     try {
-        const decodedAccessKey = atob(accessKeyId);
-        const decodedSecretKey = atob(secretAccessKey);
-        
         const response = await fetch('/vpcs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: decodedAccessKey,
-                secretAccessKey: decodedSecretKey
-            })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -579,27 +686,19 @@ async function loadVpcs(paramKey, selectedValue = '') {
 
 async function loadLambdaLayers(paramKey, selectedValue = '') {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) {
+    if (!accountId) {
         const selectElement = document.getElementById(`param-${paramKey}`);
-        selectElement.innerHTML = '<option value="">Configure AWS credentials first</option>';
+        selectElement.innerHTML = '<option value="">Configure AWS account first</option>';
         return;
     }
     
     try {
-        const decodedAccessKey = atob(accessKeyId);
-        const decodedSecretKey = atob(secretAccessKey);
-        
         const response = await fetch('/lambda-layers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: decodedAccessKey,
-                secretAccessKey: decodedSecretKey
-            })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -630,20 +729,15 @@ async function loadLambdaLayers(paramKey, selectedValue = '') {
 
 async function loadIamRoles(paramKey) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) return;
+    if (!accountId) return;
     
     try {
         const response = await fetch('/iam-roles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
-            })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -699,20 +793,15 @@ function selectLayer(paramKey) {
 // RDS Instance functions
 async function loadRdsInstances(paramKey) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) return;
+    if (!accountId) return;
     
     try {
         const response = await fetch('/rds-instances', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
-            })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -780,20 +869,15 @@ function showAllRdsInstances(paramKey) {
 // IAM Roles for general Role parameters
 async function loadIamRolesForParam(paramKey) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) return;
+    if (!accountId) return;
     
     try {
         const response = await fetch('/iam-roles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
-            })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -861,20 +945,15 @@ function showAllIamRoles(paramKey) {
 // Secrets Manager functions
 async function loadSecretsManagerSecrets(paramKey) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) return;
+    if (!accountId) return;
     
     try {
         const response = await fetch('/secrets-manager-secrets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
-            })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -943,21 +1022,15 @@ function showAllSecrets(paramKey) {
 // S3 Bucket functions
 async function loadS3Buckets(paramKey) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) return;
+    if (!accountId) return;
     
     try {
         const response = await fetch('/list-s3-buckets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey),
-                query: ''
-            })
+            body: JSON.stringify({ region, accountId, query: '' })
         });
         
         const data = await response.json();
@@ -1019,5 +1092,145 @@ function showAllS3Buckets(paramKey) {
         ).join('');
     }
     
+    dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+
+// EC2 Instance functions
+async function loadEc2Instances(paramKey) {
+    const region = document.getElementById('region').value;
+    const accountId = document.getElementById('accountId').value;
+
+    if (!accountId) return;
+
+    try {
+        const response = await fetch('/ec2-instances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region, accountId })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            window[`ec2Instances_${paramKey}`] = data.instances;
+        }
+    } catch (error) {
+        console.error('Error loading EC2 instances:', error);
+    }
+}
+
+function filterEc2Instances(paramKey) {
+    const input = document.getElementById(`param-${paramKey}`);
+    const dropdown = document.getElementById(`ec2-dropdown-${paramKey}`);
+    const instances = window[`ec2Instances_${paramKey}`] || [];
+    const query = input.value.toLowerCase();
+
+    if (query.length < 1) { dropdown.style.display = 'none'; return; }
+
+    const filtered = instances.filter(i =>
+        i.id.toLowerCase().includes(query) || (i.name && i.name.toLowerCase().includes(query))
+    ).slice(0, 10);
+
+    if (filtered.length === 0) { dropdown.style.display = 'none'; return; }
+
+    dropdown.innerHTML = filtered.map(i =>
+        `<div onclick="selectEc2Instance('${paramKey}', '${i.id}')" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='white'">
+            <strong>${i.name || i.id}</strong> <small style="color:#666;">(${i.id})</small><br>
+            <small style="color:#666;">${i.type} - ${i.state}</small>
+        </div>`
+    ).join('');
+
+    dropdown.style.display = 'block';
+}
+
+function selectEc2Instance(paramKey, instanceId) {
+    document.getElementById(`param-${paramKey}`).value = instanceId;
+    document.getElementById(`ec2-dropdown-${paramKey}`).style.display = 'none';
+}
+
+function showAllEc2Instances(paramKey) {
+    const dropdown = document.getElementById(`ec2-dropdown-${paramKey}`);
+    const instances = window[`ec2Instances_${paramKey}`] || [];
+
+    if (instances.length === 0) {
+        dropdown.innerHTML = '<div style="padding: 8px; color: #666;">No EC2 instances found</div>';
+    } else {
+        dropdown.innerHTML = instances.map(i =>
+            `<div onclick="selectEc2Instance('${paramKey}', '${i.id}')" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='white'">
+                <strong>${i.name || i.id}</strong> <small style="color:#666;">(${i.id})</small><br>
+                <small style="color:#666;">${i.type} - ${i.state}</small>
+            </div>`
+        ).join('');
+    }
+
+    dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+
+// Prefix List functions
+async function loadPrefixLists(paramKey) {
+    const region = document.getElementById('region').value;
+    const accountId = document.getElementById('accountId').value;
+
+    if (!accountId) return;
+
+    try {
+        const response = await fetch('/prefix-lists', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region, accountId })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            window[`prefixLists_${paramKey}`] = data.prefixLists;
+        }
+    } catch (error) {
+        console.error('Error loading prefix lists:', error);
+    }
+}
+
+function filterPrefixLists(paramKey) {
+    const input = document.getElementById(`param-${paramKey}`);
+    const dropdown = document.getElementById(`prefixlist-dropdown-${paramKey}`);
+    const prefixLists = window[`prefixLists_${paramKey}`] || [];
+    const query = input.value.toLowerCase();
+
+    if (query.length < 1) { dropdown.style.display = 'none'; return; }
+
+    const filtered = prefixLists.filter(pl =>
+        pl.id.toLowerCase().includes(query) || pl.name.toLowerCase().includes(query)
+    ).slice(0, 10);
+
+    if (filtered.length === 0) { dropdown.style.display = 'none'; return; }
+
+    dropdown.innerHTML = filtered.map(pl =>
+        `<div onclick="selectPrefixList('${paramKey}', '${pl.id}')" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='white'">
+            <strong>${pl.name}</strong> <small style="color:#666;">(${pl.id})</small><br>
+            <small style="color:#666;">${pl.state}</small>
+        </div>`
+    ).join('');
+
+    dropdown.style.display = 'block';
+}
+
+function selectPrefixList(paramKey, prefixListId) {
+    document.getElementById(`param-${paramKey}`).value = prefixListId;
+    document.getElementById(`prefixlist-dropdown-${paramKey}`).style.display = 'none';
+}
+
+function showAllPrefixLists(paramKey) {
+    const dropdown = document.getElementById(`prefixlist-dropdown-${paramKey}`);
+    const prefixLists = window[`prefixLists_${paramKey}`] || [];
+
+    if (prefixLists.length === 0) {
+        dropdown.innerHTML = '<div style="padding: 8px; color: #666;">No prefix lists found</div>';
+    } else {
+        dropdown.innerHTML = prefixLists.map(pl =>
+            `<div onclick="selectPrefixList('${paramKey}', '${pl.id}')" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;" onmouseover="this.style.background='#f0f0f0'" onmouseout="this.style.background='white'">
+                <strong>${pl.name}</strong> <small style="color:#666;">(${pl.id})</small><br>
+                <small style="color:#666;">${pl.state}</small>
+            </div>`
+        ).join('');
+    }
+
     dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
 }

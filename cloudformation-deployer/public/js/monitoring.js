@@ -1,5 +1,5 @@
 // Stack Monitoring Module
-function openStackMonitoringDialog(stackName, region, accessKeyId, secretAccessKey, deploymentMode) {
+function openStackMonitoringDialog(stackName, region, accountId, deploymentMode) {
     // Create monitoring popup if it doesn't exist
     if (!document.getElementById('stackMonitoringPopup')) {
         const popupHTML = `
@@ -31,14 +31,14 @@ function openStackMonitoringDialog(stackName, region, accessKeyId, secretAccessK
     }
     
     // Start monitoring
-    monitorStackStatusInDialog(stackName, region, accessKeyId, secretAccessKey, deploymentMode);
+    monitorStackStatusInDialog(stackName, region, accountId, deploymentMode);
 }
 
 function closeStackMonitoring() {
     document.getElementById('stackMonitoringPopup').style.display = 'none';
 }
 
-async function monitorStackStatusInDialog(stackName, region, accessKeyId, secretAccessKey, deploymentMode) {
+async function monitorStackStatusInDialog(stackName, region, accountId, deploymentMode) {
     const contentDiv = document.getElementById('monitoringContent');
     const closeBtn = document.getElementById('closeMonitoringBtn');
     let pollCount = 0;
@@ -72,12 +72,12 @@ async function monitorStackStatusInDialog(stackName, region, accessKeyId, secret
         const rollbackBtn = document.createElement('button');
         rollbackBtn.textContent = 'Continue Update Rollback';
         rollbackBtn.style.cssText = 'background: #fd7e14; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;';
-        rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, false);
+        rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, false);
         
         const rollbackSkipBtn = document.createElement('button');
         rollbackSkipBtn.textContent = 'Continue Rollback (Skip Resources)';
         rollbackSkipBtn.style.cssText = 'background: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;';
-        rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, true);
+        rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, true);
         
         buttonContainer.appendChild(rollbackBtn);
         buttonContainer.appendChild(rollbackSkipBtn);
@@ -101,8 +101,7 @@ async function monitorStackStatusInDialog(stackName, region, accessKeyId, secret
                 body: JSON.stringify({
                     stackName,
                     region,
-                    accessKeyId,
-                    secretAccessKey
+                    accountId
                 })
             });
             
@@ -147,12 +146,12 @@ async function monitorStackStatusInDialog(stackName, region, accessKeyId, secret
                         const rollbackBtn = document.createElement('button');
                         rollbackBtn.textContent = 'Continue Update Rollback';
                         rollbackBtn.style.cssText = 'background: #fd7e14; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;';
-                        rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, false);
+                        rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, false);
                         
                         const rollbackSkipBtn = document.createElement('button');
                         rollbackSkipBtn.textContent = 'Continue Rollback (Skip Resources)';
                         rollbackSkipBtn.style.cssText = 'background: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;';
-                        rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, true);
+                        rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, true);
                         
                         buttonContainer.appendChild(rollbackBtn);
                         buttonContainer.appendChild(rollbackSkipBtn);
@@ -241,7 +240,7 @@ async function monitorStackStatusInDialog(stackName, region, accessKeyId, secret
 }
 
 // Rollback functions
-async function continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, skipResources) {
+async function continueUpdateRollback(stackName, region, accountId, skipResources) {
     const contentDiv = document.getElementById('monitoringContent');
     const addLogEntry = (message, type = 'info') => {
         const logDiv = document.createElement('div');
@@ -271,7 +270,7 @@ async function continueUpdateRollback(stackName, region, accessKeyId, secretAcce
                 const resourcesResponse = await fetch('/get-failed-resources', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ stackName, region, accessKeyId, secretAccessKey })
+                    body: JSON.stringify({ stackName, region, accountId })
                 });
                 
                 const resourcesData = await resourcesResponse.json();
@@ -309,7 +308,7 @@ async function continueUpdateRollback(stackName, region, accessKeyId, secretAcce
                     contentDiv.appendChild(selectionDiv);
                     
                     // Store context for later use
-                    window.rollbackContext = { stackName, region, accessKeyId, secretAccessKey, userData, addLogEntry, contentDiv };
+                    window.rollbackContext = { stackName, region, accountId, userData, addLogEntry, contentDiv };
                     return;
                 } else {
                     addLogEntry('⚠️ No failed resources found. Proceeding without skipping.', 'warning');
@@ -329,11 +328,9 @@ async function continueUpdateRollback(stackName, region, accessKeyId, secretAcce
             body: JSON.stringify({
                 stackName,
                 region,
-                accessKeyId,
-                secretAccessKey,
+                accountId,
                 skipResources: [],
-                userEmail: userData?.email || 'unknown',
-                accountId: document.getElementById('accountId').value
+                userEmail: userData?.email || 'unknown'
             })
         });
         
@@ -347,7 +344,7 @@ async function continueUpdateRollback(stackName, region, accessKeyId, secretAcce
             buttons.forEach(btn => btn.parentElement.remove());
             
             // Start monitoring rollback progress
-            monitorRollbackProgress(stackName, region, accessKeyId, secretAccessKey, addLogEntry);
+            monitorRollbackProgress(stackName, region, accountId, addLogEntry);
         } else {
             addLogEntry(`❌ Continue update rollback failed: ${result.error}`, 'error');
             // Buttons remain visible for retry
@@ -357,7 +354,7 @@ async function continueUpdateRollback(stackName, region, accessKeyId, secretAcce
     }
 }
 
-async function monitorRollbackProgress(stackName, region, accessKeyId, secretAccessKey, addLogEntry) {
+async function monitorRollbackProgress(stackName, region, accountId, addLogEntry) {
     const pollRollbackStatus = async () => {
         try {
             const response = await fetch('/check-stack-status', {
@@ -366,8 +363,7 @@ async function monitorRollbackProgress(stackName, region, accessKeyId, secretAcc
                 body: JSON.stringify({
                     stackName,
                     region,
-                    accessKeyId,
-                    secretAccessKey
+                    accountId
                 })
             });
             
@@ -382,7 +378,7 @@ async function monitorRollbackProgress(stackName, region, accessKeyId, secretAcc
                     retryContainer.style.cssText = 'margin: 15px 0; padding: 15px; background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; text-align: center;';
                     retryContainer.innerHTML = `
                         <p style="margin: 0 0 10px 0;"><strong>Rollback Complete!</strong></p>
-                        <button onclick="retryFailedUpdate('${stackName}', '${region}', '${accessKeyId}', '${secretAccessKey}')" style="background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">Retry Update</button>
+                        <button onclick="retryFailedUpdate('${stackName}', '${region}', '${accountId}')" style="background: #007cba; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">Retry Update</button>
                     `;
                     document.getElementById('monitoringContent').appendChild(retryContainer);
                     
@@ -404,12 +400,12 @@ async function monitorRollbackProgress(stackName, region, accessKeyId, secretAcc
                     const rollbackBtn = document.createElement('button');
                     rollbackBtn.textContent = 'Continue Update Rollback';
                     rollbackBtn.style.cssText = 'background: #fd7e14; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;';
-                    rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, false);
+                    rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, false);
                     
                     const rollbackSkipBtn = document.createElement('button');
                     rollbackSkipBtn.textContent = 'Continue Rollback (Skip Resources)';
                     rollbackSkipBtn.style.cssText = 'background: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;';
-                    rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, true);
+                    rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, true);
                     
                     buttonContainer.appendChild(rollbackBtn);
                     buttonContainer.appendChild(rollbackSkipBtn);
@@ -437,7 +433,7 @@ async function monitorRollbackProgress(stackName, region, accessKeyId, secretAcc
 }
 
 async function proceedWithSelectedResources() {
-    const { stackName, region, accessKeyId, secretAccessKey, userData, addLogEntry, contentDiv } = window.rollbackContext;
+    const { stackName, region, accountId, userData, addLogEntry, contentDiv } = window.rollbackContext;
     const selectionUI = document.getElementById('resourceSelectionUI');
     const checkboxes = selectionUI ? selectionUI.querySelectorAll('input[type="checkbox"]:checked') : [];
     const selectedResources = Array.from(checkboxes).map(cb => cb.value);
@@ -457,11 +453,9 @@ async function proceedWithSelectedResources() {
             body: JSON.stringify({
                 stackName,
                 region,
-                accessKeyId,
-                secretAccessKey,
+                accountId,
                 skipResources: uniqueResources,
-                userEmail: userData?.email || 'unknown',
-                accountId: document.getElementById('accountId').value
+                userEmail: userData?.email || 'unknown'
             })
         });
         
@@ -475,7 +469,7 @@ async function proceedWithSelectedResources() {
             buttons.forEach(btn => btn.parentElement.remove());
             
             // Start monitoring rollback progress
-            monitorRollbackProgress(stackName, region, accessKeyId, secretAccessKey, addLogEntry);
+            monitorRollbackProgress(stackName, region, accountId, addLogEntry);
         } else {
             addLogEntry(`❌ Continue update rollback failed: ${result.error}`, 'error');
             // Buttons remain visible for retry
@@ -486,7 +480,7 @@ async function proceedWithSelectedResources() {
 }
 
 function cancelResourceSelection() {
-    const { stackName, region, accessKeyId, secretAccessKey, contentDiv, addLogEntry } = window.rollbackContext;
+    const { stackName, region, accountId, contentDiv, addLogEntry } = window.rollbackContext;
     
     // Remove selection UI
     const selectionUI = document.getElementById('resourceSelectionUI');
@@ -501,19 +495,19 @@ function cancelResourceSelection() {
     const rollbackBtn = document.createElement('button');
     rollbackBtn.textContent = 'Continue Update Rollback';
     rollbackBtn.style.cssText = 'background: #fd7e14; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;';
-    rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, false);
+    rollbackBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, false);
     
     const rollbackSkipBtn = document.createElement('button');
     rollbackSkipBtn.textContent = 'Continue Rollback (Skip Resources)';
     rollbackSkipBtn.style.cssText = 'background: #dc3545; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;';
-    rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accessKeyId, secretAccessKey, true);
+    rollbackSkipBtn.onclick = () => continueUpdateRollback(stackName, region, accountId, true);
     
     buttonContainer.appendChild(rollbackBtn);
     buttonContainer.appendChild(rollbackSkipBtn);
     contentDiv.appendChild(buttonContainer);
 }
 
-async function retryFailedUpdate(stackName, region, accessKeyId, secretAccessKey) {
+async function retryFailedUpdate(stackName, region, accountId) {
     const contentDiv = document.querySelector('#monitoringContent');
     const addLogEntry = (message, type = 'info') => {
         const logDiv = document.createElement('div');
@@ -545,8 +539,6 @@ async function retryFailedUpdate(stackName, region, accessKeyId, secretAccessKey
 }
 
 // Stack status monitoring function (backward compatibility)
-async function monitorStackStatus(stackName, region, accessKeyId, secretAccessKey, deploymentMode) {
-    // This function is now replaced by the dialog version above
-    // Keeping for backward compatibility but redirecting to dialog
-    openStackMonitoringDialog(stackName, region, accessKeyId, secretAccessKey, deploymentMode);
+async function monitorStackStatus(stackName, region, accountId, deploymentMode) {
+    openStackMonitoringDialog(stackName, region, accountId, deploymentMode);
 }

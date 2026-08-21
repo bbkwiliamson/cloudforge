@@ -35,8 +35,7 @@ function showServiceCatalogTab(tab) {
 
 async function loadProvisionedProducts() {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
     // Show loading indicator
     const container = document.getElementById('scProvisionedContainer');
@@ -48,8 +47,7 @@ async function loadProvisionedProducts() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 region, 
-                accessKeyId: atob(accessKeyId), 
-                secretAccessKey: atob(secretAccessKey)
+                accountId
             })
         });
         
@@ -298,8 +296,7 @@ async function confirmTerminate() {
     }
     
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     const userInfo = localStorage.getItem('userInfo');
     let userData = null;
     if (userInfo) { try { userData = JSON.parse(userInfo).data; } catch (e) {} }
@@ -311,9 +308,7 @@ async function confirmTerminate() {
             body: JSON.stringify({
                 provisionedProductId: terminateProductData.productId,
                 region,
-                accountId: document.getElementById('accountId').value,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey),
+                accountId,
                 userEmail: userData?.email || 'unknown',
                 rteEmail: rte || null,
                 environment: environment || 'NON-PROD',
@@ -345,8 +340,7 @@ function closeTerminateConfirm() {
 
 async function recreateProduct(provisionedProductId, productId, artifactId) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
     try {
         const response = await fetch('/service-catalog/product-parameters', {
@@ -355,8 +349,7 @@ async function recreateProduct(provisionedProductId, productId, artifactId) {
             body: JSON.stringify({
                 provisionedProductId,
                 region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
+                accountId
             })
         });
         
@@ -373,8 +366,7 @@ async function recreateProduct(provisionedProductId, productId, artifactId) {
                 productId: data.productId,
                 artifactId: data.artifactId,
                 region,
-                accessKeyId: atob(accessKeyId),
-                secretAccessKey: atob(secretAccessKey)
+                accountId
             })
         });
         
@@ -465,11 +457,10 @@ async function recreateProduct(provisionedProductId, productId, artifactId) {
 }
 
 async function openServiceCatalog() {
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
-    if (!accessKeyId || !secretAccessKey) {
-        showAlert('Please configure AWS credentials first', 'warning');
+    if (!accountId) {
+        showAlert('Please configure AWS account first', 'warning');
         return;
     }
     
@@ -492,21 +483,17 @@ function closeServiceCatalog() {
 
 async function loadServiceCatalogProducts() {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     
     // Show loading indicator
     const container = document.getElementById('scProductsContainer');
     container.innerHTML = '<div style="text-align: center; padding: 20px;"><div style="display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #007cba; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 10px; color: #666;">Loading Service Catalog products...</p></div>';
     
     try {
-        const decodedAccessKey = atob(accessKeyId);
-        const decodedSecretKey = atob(secretAccessKey);
-        
         const response = await fetch('/service-catalog/products', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ region, accessKeyId: decodedAccessKey, secretAccessKey: decodedSecretKey })
+            body: JSON.stringify({ region, accountId })
         });
         
         const data = await response.json();
@@ -534,12 +521,11 @@ function displayProducts(products) {
 
 async function showVersionSelection(productId, productName) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     try {
         const response = await fetch('/service-catalog/product-versions', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ productId, region, accessKeyId: atob(accessKeyId), secretAccessKey: atob(secretAccessKey) })
+            body: JSON.stringify({ productId, region, accountId })
         });
         const data = await response.json();
         if (response.ok) { displayVersions(data.versions, productId, productName); }
@@ -564,12 +550,11 @@ function displayVersions(versions, productId, productName) {
 
 async function selectProductVersion(productId, productName, artifactId) {
     const region = document.getElementById('region').value;
-    const accessKeyId = document.getElementById('accessKeyId').value;
-    const secretAccessKey = document.getElementById('secretAccessKey').value;
+    const accountId = document.getElementById('accountId').value;
     try {
         const response = await fetch('/service-catalog/product-details', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ productId, artifactId, region, accessKeyId: atob(accessKeyId), secretAccessKey: atob(secretAccessKey) })
+            body: JSON.stringify({ productId, artifactId, region, accountId })
         });
         const data = await response.json();
         if (response.ok) { currentProduct = { ...data, name: productName }; displayProductDetails(data, productName); }
@@ -914,7 +899,6 @@ async function provisionProduct() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ productId: currentProduct.productId, artifactId: currentProduct.artifactId, parameters, provisionedProductName,
                 region: document.getElementById('region').value, accountId: document.getElementById('accountId').value,
-                accessKeyId: atob(document.getElementById('accessKeyId').value), secretAccessKey: atob(document.getElementById('secretAccessKey').value),
                 userEmail: userData?.email || 'unknown', rteEmail: rte || null, environment: environment || 'NON-PROD', crqId: document.getElementById('scCrqId').value })
         });
         const data = await response.json();
@@ -928,7 +912,7 @@ async function pollProvisionStatus() {
         const response = await fetch('/service-catalog/provision-status', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recordId: provisionRecordId, region: document.getElementById('region').value,
-                accessKeyId: atob(document.getElementById('accessKeyId').value), secretAccessKey: atob(document.getElementById('secretAccessKey').value) })
+                accountId: document.getElementById('accountId').value })
         });
         const data = await response.json();
         if (response.ok) {
@@ -1003,8 +987,7 @@ async function showProductResources(productId, productName) {
             body: JSON.stringify({
                 provisionedProductId: productId,
                 region: document.getElementById('region').value,
-                accessKeyId: atob(document.getElementById('accessKeyId').value),
-                secretAccessKey: atob(document.getElementById('secretAccessKey').value)
+                accountId: document.getElementById('accountId').value
             })
         });
         
@@ -1073,8 +1056,6 @@ async function deleteFailedProduct(provisionedProductId) {
                 provisionedProductId,
                 region: document.getElementById('region').value,
                 accountId: document.getElementById('accountId').value,
-                accessKeyId: atob(document.getElementById('accessKeyId').value),
-                secretAccessKey: atob(document.getElementById('secretAccessKey').value),
                 userEmail: JSON.parse(localStorage.getItem('userInfo')).data.email
             })
         });
