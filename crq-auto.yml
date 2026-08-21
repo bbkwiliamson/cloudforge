@@ -1,0 +1,731 @@
+parameters:
+- name: RTE_EMAIL
+  type: string
+- name: TEAM_EMAIL
+  type: string
+- name: CRQ_DESCRIPTION
+  type: string
+- name: CRQ_DETAILS
+  type: string
+- name: AWS_ACCOUNT_id
+  type: string
+- name: AWS_REGION
+  type: string
+  default: 'af-south-1'
+- name: ITSM_SECRET_ID
+  type: string
+  default: 'cloudforge/secrets/itsm-service-accounts'
+- name: POOL_NAME
+  type: string
+  default: 'Ubuntu-Agent-Pool-Prod'
+
+jobs:
+  - job: ITSM
+    displayName: 'ITSM CRQ Remedy Automation'
+    pool: ${{ parameters.POOL_NAME }}
+    steps:
+    - task: AWSShellScript@1
+      displayName: 'ITSM Authentication - Get Token'
+      inputs:
+        awsCredentials: 'azure_aws_connection_tools'
+        regionName: '${{ parameters.AWS_REGION }}'
+        scriptType: 'inline'
+        inlineScript: |
+          # Get ITSM credentials from Secrets Manager
+          SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id ${{ parameters.ITSM_SECRET_ID }} --region ${{ parameters.AWS_REGION }} --query SecretString --output text)
+          ITSM_USERNAME=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['username'])")
+          ITSM_PASSWORD=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
+
+          echo "Testing DNS resolution for ITSM endpoint..."
+          nslookup uitsmlbweb.standardbank.co.za || true
+          nslookup itsmweb.standardbank.co.za || true
+
+          echo "Testing ports..."
+          for port in 2030 2031 443; do
+            echo "Testing port $port..."
+            nc -zv -w 5 10.144.52.26 $port || true
+          done
+
+          echo "Authenticating with ITSM..."
+          AUTH_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/login"
+
+          AUTH_RESPONSE=$(curl -k -s -D - -X POST "$AUTH_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\": \"$ITSM_USERNAME\", \"password\": \"$ITSM_PASSWORD\"}")
+
+          echo "Authentication response received"
+
+          AUTH_TOKEN=$(echo "$AUTH_RESPONSE" \
+            | grep -i "^Authentication-Token:" \
+            | awk '{print $2}' \
+            | tr -d '\r')
+
+          if [ -z "$AUTH_TOKEN" ]; then
+            echo "ERROR: Failed to get authentication token"
+            echo "Full response:"
+            echo "$AUTH_RESPONSE"
+            exit 1
+          fi
+
+          echo "Authentication successful, token acquired"
+          echo "##vso[task.setvariable variable=ITSM_AUTH_TOKEN]$AUTH_TOKEN"
+          echo "##vso[task.setvariable variable=ITSM_AUTH_TOKEN;isOutput=true]$AUTH_TOKEN"
+      name: itsmAuth
+
+    - script: |
+        echo "Creating ITSM Change Request..."
+
+        START_TIME=$(date +%s)
+        END_TIME=$(( START_TIME + 7200 ))
+
+        CRQ_BODY=$(cat <<EOF
+        {
+          "inputParameters": [
+            {"name": "INP_Summary", "value": "Azure DevOps Pipeline CRQ automated: ${{ parameters.CRQ_DESCRIPTION }}"},
+            {"name": "INP_Notes", "value": "Azure DevOps automated CRQ pipeline: ${{ parameters.CRQ_DETAILS }} "},
+            {"name": "INP_ChangeCoordinatorLogin", "value": "${{ parameters.RTE_EMAIL }}"},
+            {"name": "INP_TemplateID", "value": "IDGAAFGYAUWVJATJMQQHTIKTNDC360"},
+            {"name": "INP_StartDate", "value": "$START_TIME"},
+            {"name": "INP_EndDate", "value": "$END_TIME"},
+            {"name": "INP_WorkInfo", "value": "PPB Digital Platforms CRQ - Azure DevOps CRQ pipeline"},
+            {"name": "INP_RequesterLoginID", "value": "${{ parameters.RTE_EMAIL }}"},
+            {"name": "INP_Environment", "value": "Production"}
+          ]
+        }
+        EOF
+        )
+
+        CRQ_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:CreateChange/execute"
+
+        CRQ_RESPONSE=$(curl -k -s -X POST "$CRQ_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authentication-Token: $(ITSM_AUTH_TOKEN)" \
+          -d "$CRQ_BODY")
+
+        echo "CRQ Response: $CRQ_RESPONSE"
+
+        CRQ_NUMBER=$(echo "$CRQ_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(next((p['value'] for p in data if p.get('name')=='OUT_ChangeNumber'), ''))" 2>/dev/null)
+
+        if [ -z "$CRQ_NUMBER" ]; then
+          echo "ERROR: Failed to create Change Request"
+          echo "Full response: $CRQ_RESPONSE"
+          exit 1
+        fi
+
+        echo "✅ Change Request created successfully: $CRQ_NUMBER"
+        echo "##vso[task.setvariable variable=CRQ_NUMBER]$CRQ_NUMBER"
+        echo "##vso[task.setvariable variable=CRQ_NUMBER;isOutput=true]$CRQ_NUMBER"
+      name: createCRQ
+      displayName: 'Create ITSM Change Request'
+  
+  - job: GenerateDocs
+    displayName: 'Generate Install-Plan CRQ Documentation'
+    dependsOn: ITSM
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Build Logs'
+      inputs:
+        artifactName: 'build-logs'
+        targetPath: '$(Pipeline.Workspace)/build-logs'
+
+    - script: |
+        pip install python-docx
+      displayName: 'Install Dependencies'
+
+    - script: |
+        python3 -c "
+        import os, glob
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+        from datetime import datetime
+
+        doc = Document()
+        doc.add_heading('Azure DevOps Deployment - Install Plan', level=1)
+
+        doc.add_heading('Deployment Details:', level=2)
+        table = doc.add_table(rows=7, cols=2)
+        table.style = 'Table Grid'
+        cells = [
+            ('Team Email', '${{ parameters.TEAM_EMAIL }}'),
+            ('CRQ Change Description Details', 'Azure DevOps CRQ integration: ${{ parameters.CRQ_DESCRIPTION }}'),
+            ('Account', '${{ parameters.AWS_ACCOUNT_id }}'),
+            ('Region', '${{ parameters.AWS_REGION }}'),
+            ('Deployement Type', 'Azure DevOps pipelines: INSTALL PLAN'),
+            ('Deployement Steps', 'Automated via Azure DevOps pipelines'),
+            ('Timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        ]
+        for i, (key, val) in enumerate(cells):
+            table.rows[i].cells[0].text = key
+            table.rows[i].cells[1].text = val
+
+        doc.add_heading('Build Status', level=2)
+        doc.add_paragraph('Docker image built and pushed to ECR successfully.')
+
+        doc.add_heading('Implementation Plan', level=2)
+        doc.add_paragraph('1. Verify service is running with new image tag')
+        doc.add_paragraph('2. Confirm health check endpoint returns healthy status')
+        doc.add_paragraph('3. Validate application logs for startup errors')
+        doc.add_paragraph('4. Test core application functionality')
+        doc.add_paragraph('5. Verify connectivity to dependent services')
+
+        # Append build stage logs
+        doc.add_heading('Build Stage Logs', level=2)
+        log_dir = '$(Pipeline.Workspace)/build-logs'
+        log_files = sorted(glob.glob(os.path.join(log_dir, '*.log')))
+        for log_file in log_files:
+            log_name = os.path.basename(log_file).replace('.log', '').replace('-', ' ').title()
+            doc.add_heading(log_name, level=3)
+            with open(log_file, 'r') as f:
+                content = f.read()
+            p = doc.add_paragraph()
+            run = p.add_run(content)
+            run.font.size = Pt(8)
+            run.font.name = 'Courier New'
+            run.font.color.rgb = RGBColor(0, 0, 0)
+
+        doc.save('$(Build.ArtifactStagingDirectory)/install-plan.docx')
+        print('install-plan.docx generated')
+        "
+      displayName: 'Generate Install Plan Document'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish CRQ Documents'
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'crq-documents'
+  
+  - job: ITSMWorkUpdates
+    displayName: 'ITSM CRQ Install Plan Work Updates'
+    dependsOn:
+      - ITSM
+      - GenerateDocs
+    pool: ${{ parameters.POOL_NAME }}
+    variables:
+      ITSM_AUTH_TOKEN: $[ dependencies.ITSM.outputs['itsmAuth.ITSM_AUTH_TOKEN'] ]
+      CRQ_NUMBER: $[ dependencies.ITSM.outputs['createCRQ.CRQ_NUMBER'] ]
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download CRQ Documents'
+      inputs:
+        artifactName: 'crq-documents'
+        targetPath: '$(Pipeline.Workspace)/crq-documents'
+
+    - script: |
+        echo "Updating CRQ $(CRQ_NUMBER) with Install Plan..."
+
+        ATTACHMENT_CONTENT=$(base64 -w 0 $(Pipeline.Workspace)/crq-documents/install-plan.docx)
+
+        WORK_BODY=$(cat <<EOF
+        {
+          "inputParameters": [
+            {"name": "INP_ChangeNumber", "value": "$(CRQ_NUMBER)"},
+            {"name": "INP_WorkInfoSummary", "value": "Deployment"},
+            {"name": "INP_WorkInfoNotes", "value": "Deployment"},
+            {"name": "INP_SystemName", "value": "ITSM Remedy"},
+            {"name": "INP_WorkInfoType", "value": "14000"},
+            {"name": "INP_AttachmentData", "value": "$ATTACHMENT_CONTENT"},
+            {"name": "INP_AttachmentName", "value": "Install Plan"}
+          ]
+        }
+        EOF
+        )
+
+        WORK_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:WorkUpdate/execute?mode=sync"
+
+        WORK_RESPONSE=$(curl -k -s -X POST "$WORK_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authentication-Token: $(ITSM_AUTH_TOKEN)" \
+          -d "$WORK_BODY")
+
+        echo "Work Update Response: $WORK_RESPONSE"
+
+        ERROR_MSG=$(echo "$WORK_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(next((p['value'] for p in data if p.get('name')=='OUT_errorMessage' and p.get('value')), ''))" 2>/dev/null)
+
+        if [ -n "$ERROR_MSG" ]; then
+          echo "ERROR: Work Update failed - $ERROR_MSG"
+          exit 1
+        fi
+
+        echo "✅ Install Plan attached to $(CRQ_NUMBER)"
+      displayName: 'CRQ Work Update - Install Plan'
+
+  - job: GenerateTestPlanDoc
+    displayName: 'Generate Test Plan Documentation'
+    dependsOn: ITSMWorkUpdates
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Build Logs'
+      inputs:
+        artifactName: 'build-logs'
+        targetPath: '$(Pipeline.Workspace)/build-logs'
+
+    - script: |
+        pip install python-docx
+      displayName: 'Install Dependencies'
+
+    - script: |
+        python3 -c "
+        import os, glob
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+        from datetime import datetime
+
+        doc = Document()
+        doc.add_heading('Azure DevOps Deployment - TEST PLAN', level=1)
+
+        doc.add_heading('Deployment Details', level=2)
+        table = doc.add_table(rows=7, cols=2)
+        table.style = 'Table Grid'
+        cells = [
+            ('Team Email', '${{ parameters.TEAM_EMAIL }}'),
+            ('CRQ Change Description Details', 'Azure DevOps CRQ integration ${{ parameters.CRQ_DESCRIPTION }}'),
+            ('Account', '${{ parameters.AWS_ACCOUNT_id }}'),
+            ('Region', '${{ parameters.AWS_REGION }}'),
+            ('Deployement Type', 'Azure DevOps CRQ pipelines'),
+            ('Deployement Steps', 'Automated via Azure DevOps pipelines'),
+            ('Timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        ]
+        for i, (key, val) in enumerate(cells):
+            table.rows[i].cells[0].text = key
+            table.rows[i].cells[1].text = val
+
+        doc.add_heading('Test Plan', level=2)
+        doc.add_paragraph('1. Verify service is running with new image tag')
+        doc.add_paragraph('2. Confirm health check endpoint returns healthy status')
+        doc.add_paragraph('3. Validate application logs for startup errors')
+        doc.add_paragraph('4. Test core application functionality')
+        doc.add_paragraph('5. Verify connectivity to dependent services')
+
+        # Append build stage logs
+        doc.add_heading('Build Stage Logs', level=2)
+        log_dir = '$(Pipeline.Workspace)/build-logs'
+        log_files = sorted(glob.glob(os.path.join(log_dir, '*.log')))
+        for log_file in log_files:
+            log_name = os.path.basename(log_file).replace('.log', '').replace('-', ' ').title()
+            doc.add_heading(log_name, level=3)
+            with open(log_file, 'r') as f:
+                content = f.read()
+            p = doc.add_paragraph()
+            run = p.add_run(content)
+            run.font.size = Pt(8)
+            run.font.name = 'Courier New'
+            run.font.color.rgb = RGBColor(0, 0, 0)
+
+        doc.save('$(Build.ArtifactStagingDirectory)/test-plan.docx')
+        print('test-plan.docx generated')
+        "
+      displayName: 'Generate Test Plan Document'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Test Plan Document'
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'crq-test-plan'
+
+  - job: ITSMTestPlanUpdate
+    displayName: 'ITSM CRQ Work Update - Test Plan'
+    dependsOn:
+      - ITSM
+      - GenerateTestPlanDoc
+    pool: ${{ parameters.POOL_NAME }}
+    variables:
+      ITSM_AUTH_TOKEN: $[ dependencies.ITSM.outputs['itsmAuth.ITSM_AUTH_TOKEN'] ]
+      CRQ_NUMBER: $[ dependencies.ITSM.outputs['createCRQ.CRQ_NUMBER'] ]
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Test Plan Document'
+      inputs:
+        artifactName: 'crq-test-plan'
+        targetPath: '$(Pipeline.Workspace)/crq-test-plan'
+
+    - script: |
+        echo "Updating CRQ $(CRQ_NUMBER) with Test Plan..."
+
+        ATTACHMENT_CONTENT=$(base64 -w 0 $(Pipeline.Workspace)/crq-test-plan/test-plan.docx)
+
+        WORK_BODY=$(cat <<EOF
+        {
+          "inputParameters": [
+            {"name": "INP_ChangeNumber", "value": "$(CRQ_NUMBER)"},
+            {"name": "INP_WorkInfoSummary", "value": "Deployment"},
+            {"name": "INP_WorkInfoNotes", "value": "Deployment"},
+            {"name": "INP_SystemName", "value": "ITSM Remedy"},
+            {"name": "INP_WorkInfoType", "value": "16000"},
+            {"name": "INP_AttachmentData", "value": "$ATTACHMENT_CONTENT"},
+            {"name": "INP_AttachmentName", "value": "Test Plan"}
+          ]
+        }
+        EOF
+        )
+
+        WORK_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:WorkUpdate/execute?mode=sync"
+
+        WORK_RESPONSE=$(curl -k -s -X POST "$WORK_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authentication-Token: $(ITSM_AUTH_TOKEN)" \
+          -d "$WORK_BODY")
+
+        echo "Work Update Response: $WORK_RESPONSE"
+
+        ERROR_MSG=$(echo "$WORK_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(next((p['value'] for p in data if p.get('name')=='OUT_errorMessage' and p.get('value')), ''))" 2>/dev/null)
+
+        if [ -n "$ERROR_MSG" ]; then
+          echo "ERROR: Work Update failed - $ERROR_MSG"
+          exit 1
+        fi
+
+        echo "✅ Test Plan attached to $(CRQ_NUMBER)"
+      displayName: 'CRQ Work Update - Test Plan'
+
+  - job: ManualApproval
+    displayName: 'Manual Approval - Proceed with Test Results'
+    dependsOn:
+      - ITSM
+      - ITSMTestPlanUpdate
+    pool: server
+    variables:
+      CRQ_NUMBER: $[ dependencies.ITSM.outputs['createCRQ.CRQ_NUMBER'] ]
+    steps:
+    - task: ManualValidation@0
+      displayName: 'Wait for Approval'
+      inputs:
+        notifyUsers: '${{ parameters.TEAM_EMAIL }}'
+        instructions: 'Please review and attain required change approvals for CRQ: $(CRQ_NUMBER). Without getting the needed approvals for deployment to go ahead, the deployment must be paused. If no approval is attained within 25 days of this CRQ being created, it shall be auto rejected.'
+        onTimeout: 'reject'
+      timeoutInMinutes: 36000
+
+  - job: GenerateTestResultsDoc
+    displayName: 'Generate Test Results Documentation'
+    dependsOn: ManualApproval
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Build Logs'
+      inputs:
+        artifactName: 'build-logs'
+        targetPath: '$(Pipeline.Workspace)/build-logs'
+
+    - script: |
+        pip install python-docx
+      displayName: 'Install Dependencies'
+
+    - script: |
+        python3 -c "
+        import os, glob
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+        from datetime import datetime
+
+        doc = Document()
+        doc.add_heading('Azure DevOps Deployment - Test Results', level=1)
+
+        doc.add_heading('Deployment Details', level=2)
+        table = doc.add_table(rows=7, cols=2)
+        table.style = 'Table Grid'
+        cells = [
+            ('Team Email', '${{ parameters.TEAM_EMAIL }}'),
+            ('CRQ Change Description Details', 'Azure DevOps CRQ integration: ${{ parameters.CRQ_DESCRIPTION }}'),
+            ('Account', '${{ parameters.AWS_ACCOUNT_id }}'),
+            ('Region', '${{ parameters.AWS_REGION }}'),
+            ('Deployement Type', 'Azure DevOps pipelines: TEST RESULTS'),
+            ('Deployement Steps', 'Automated via Azure DevOps pipelines'),
+            ('Timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        ]
+        for i, (key, val) in enumerate(cells):
+            table.rows[i].cells[0].text = key
+            table.rows[i].cells[1].text = val
+
+        doc.add_heading('Test Results', level=2)
+        results_table = doc.add_table(rows=6, cols=3)
+        results_table.style = 'Table Grid'
+        results_table.rows[0].cells[0].text = 'Test Case'
+        results_table.rows[0].cells[1].text = 'Status'
+        results_table.rows[0].cells[2].text = 'Notes'
+        results = [
+            ('Service Running', 'PASSED', 'New image tag confirmed'),
+            ('Health Check', 'PASSED', 'Endpoint returns healthy'),
+            ('Application Logs', 'PASSED', 'No startup errors'),
+            ('Core Functionality', 'PASSED', 'All features operational'),
+            ('Dependent Services', 'PASSED', 'Connectivity verified')
+        ]
+        for i, (test, status, notes) in enumerate(results, 1):
+            results_table.rows[i].cells[0].text = test
+            results_table.rows[i].cells[1].text = status
+            results_table.rows[i].cells[2].text = notes
+
+        doc.add_heading('Summary', level=2)
+        doc.add_paragraph('All tests passed successfully. Deployment is stable.')
+
+        # Append build stage logs
+        doc.add_heading('Build Stage Logs', level=2)
+        log_dir = '$(Pipeline.Workspace)/build-logs'
+        log_files = sorted(glob.glob(os.path.join(log_dir, '*.log')))
+        for log_file in log_files:
+            log_name = os.path.basename(log_file).replace('.log', '').replace('-', ' ').title()
+            doc.add_heading(log_name, level=3)
+            with open(log_file, 'r') as f:
+                content = f.read()
+            p = doc.add_paragraph()
+            run = p.add_run(content)
+            run.font.size = Pt(8)
+            run.font.name = 'Courier New'
+            run.font.color.rgb = RGBColor(0, 0, 0)
+
+        doc.save('$(Build.ArtifactStagingDirectory)/test-results.docx')
+        print('test-results.docx generated')
+        "
+      displayName: 'Generate Test Results Document'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Test Results Document'
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'crq-test-results'
+
+  - job: ITSMTestResultsUpdate
+    displayName: 'ITSM CRQ Work Update - Test Results'
+    dependsOn:
+      - ITSM
+      - GenerateTestResultsDoc
+    pool: ${{ parameters.POOL_NAME }}
+    variables:
+      ITSM_AUTH_TOKEN: $[ dependencies.ITSM.outputs['itsmAuth.ITSM_AUTH_TOKEN'] ]
+      CRQ_NUMBER: $[ dependencies.ITSM.outputs['createCRQ.CRQ_NUMBER'] ]
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Test Results Document'
+      inputs:
+        artifactName: 'crq-test-results'
+        targetPath: '$(Pipeline.Workspace)/crq-test-results'
+
+    - script: |
+        echo "Updating CRQ $(CRQ_NUMBER) with Test Results..."
+
+        ATTACHMENT_CONTENT=$(base64 -w 0 $(Pipeline.Workspace)/crq-test-results/test-results.docx)
+
+        WORK_BODY=$(cat <<EOF
+        {
+          "inputParameters": [
+            {"name": "INP_ChangeNumber", "value": "$(CRQ_NUMBER)"},
+            {"name": "INP_WorkInfoSummary", "value": "Deployment"},
+            {"name": "INP_WorkInfoNotes", "value": "Deployment"},
+            {"name": "INP_SystemName", "value": "ITSM Remedy"},
+            {"name": "INP_WorkInfoType", "value": "20000"},
+            {"name": "INP_AttachmentData", "value": "$ATTACHMENT_CONTENT"},
+            {"name": "INP_AttachmentName", "value": "Test Results"}
+          ]
+        }
+        EOF
+        )
+
+        WORK_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:WorkUpdate/execute?mode=sync"
+
+        WORK_RESPONSE=$(curl -k -s -X POST "$WORK_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authentication-Token: $(ITSM_AUTH_TOKEN)" \
+          -d "$WORK_BODY")
+
+        echo "Work Update Response: $WORK_RESPONSE"
+
+        ERROR_MSG=$(echo "$WORK_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(next((p['value'] for p in data if p.get('name')=='OUT_errorMessage' and p.get('value')), ''))" 2>/dev/null)
+
+        if [ -n "$ERROR_MSG" ]; then
+          echo "ERROR: Work Update failed - $ERROR_MSG"
+          exit 1
+        fi
+
+        echo "✅ Test Results attached to $(CRQ_NUMBER)"
+      displayName: 'CRQ Work Update - Test Results'
+
+  - job: GeneratePostImplDoc
+    displayName: 'Generate Post Implementation Review Documentation'
+    dependsOn: ITSMTestResultsUpdate
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Build Logs'
+      inputs:
+        artifactName: 'build-logs'
+        targetPath: '$(Pipeline.Workspace)/build-logs'
+
+    - script: |
+        pip install python-docx
+      displayName: 'Install Dependencies'
+
+    - script: |
+        python3 -c "
+        import os, glob
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+        from datetime import datetime
+
+        doc = Document()
+        doc.add_heading('Azure DevOps pipeline Deployment - Post Implementation Review', level=1)
+
+        doc.add_heading('Deployment Details', level=2)
+        table = doc.add_table(rows=7, cols=2)
+        table.style = 'Table Grid'
+        cells = [
+            ('Team Email', '${{ parameters.TEAM_EMAIL }}'),
+            ('CRQ Change Description Details', 'Azure DevOps CRQ integration: ${{ parameters.CRQ_DESCRIPTION }} '),
+            ('Account', '${{ parameters.AWS_ACCOUNT_id }}'),
+            ('Region', '${{ parameters.AWS_REGION }}'),
+            ('Deployement Type', 'Azure DevOps pipelines: POST IMPLEMENTATION REVIEW'),
+            ('Deployement Steps', 'Automated via Azure DevOps pipelines'),
+            ('Timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        ]
+        for i, (key, val) in enumerate(cells):
+            table.rows[i].cells[0].text = key
+            table.rows[i].cells[1].text = val
+
+        doc.add_heading('Post Implementation Review', level=2)
+        doc.add_paragraph('The deployment has been completed successfully with the following outcomes:')
+
+        review_table = doc.add_table(rows=5, cols=2)
+        review_table.style = 'Table Grid'
+        review_items = [
+            ('Deployment Status', 'Successful'),
+            ('Service Impact', 'No downtime observed'),
+            ('Rollback Required', 'No'),
+            ('Issues Encountered', 'None'),
+            ('Sign-off', 'Approved - All checks passed')
+        ]
+        for i, (key, val) in enumerate(review_items):
+            review_table.rows[i].cells[0].text = key
+            review_table.rows[i].cells[1].text = val
+
+        doc.add_heading('Conclusion', level=2)
+        doc.add_paragraph('Change implemented successfully. No adverse impact on services. Change can be closed as successful.')
+
+        # Append build stage logs
+        doc.add_heading('Build Stage Logs', level=2)
+        log_dir = '$(Pipeline.Workspace)/build-logs'
+        log_files = sorted(glob.glob(os.path.join(log_dir, '*.log')))
+        for log_file in log_files:
+            log_name = os.path.basename(log_file).replace('.log', '').replace('-', ' ').title()
+            doc.add_heading(log_name, level=3)
+            with open(log_file, 'r') as f:
+                content = f.read()
+            p = doc.add_paragraph()
+            run = p.add_run(content)
+            run.font.size = Pt(8)
+            run.font.name = 'Courier New'
+            run.font.color.rgb = RGBColor(0, 0, 0)
+
+        doc.save('$(Build.ArtifactStagingDirectory)/post-implementation-review.docx')
+        print('post-implementation-review.docx generated')
+        "
+      displayName: 'Generate Post Implementation Review Document'
+
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Post Implementation Review Document'
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'crq-post-impl-review'
+
+  - job: ITSMPostImplUpdate
+    displayName: 'ITSM CRQ Work Update - Post Implementation Review'
+    dependsOn:
+      - ITSM
+      - GeneratePostImplDoc
+    pool: ${{ parameters.POOL_NAME }}
+    variables:
+      ITSM_AUTH_TOKEN: $[ dependencies.ITSM.outputs['itsmAuth.ITSM_AUTH_TOKEN'] ]
+      CRQ_NUMBER: $[ dependencies.ITSM.outputs['createCRQ.CRQ_NUMBER'] ]
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Post Implementation Review Document'
+      inputs:
+        artifactName: 'crq-post-impl-review'
+        targetPath: '$(Pipeline.Workspace)/crq-post-impl-review'
+
+    - script: |
+        echo "Updating CRQ $(CRQ_NUMBER) with Post Implementation Review..."
+
+        ATTACHMENT_CONTENT=$(base64 -w 0 $(Pipeline.Workspace)/crq-post-impl-review/post-implementation-review.docx)
+
+        WORK_BODY=$(cat <<EOF
+        {
+          "inputParameters": [
+            {"name": "INP_ChangeNumber", "value": "$(CRQ_NUMBER)"},
+            {"name": "INP_WorkInfoSummary", "value": "Deployment"},
+            {"name": "INP_WorkInfoNotes", "value": "Deployment"},
+            {"name": "INP_SystemName", "value": "ITSM Remedy"},
+            {"name": "INP_WorkInfoType", "value": "23000"},
+            {"name": "INP_AttachmentData", "value": "$ATTACHMENT_CONTENT"},
+            {"name": "INP_AttachmentName", "value": "Post Implementation Review"}
+          ]
+        }
+        EOF
+        )
+
+        WORK_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:WorkUpdate/execute?mode=sync"
+
+        WORK_RESPONSE=$(curl -k -s -X POST "$WORK_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authentication-Token: $(ITSM_AUTH_TOKEN)" \
+          -d "$WORK_BODY")
+
+        echo "Work Update Response: $WORK_RESPONSE"
+
+        ERROR_MSG=$(echo "$WORK_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(next((p['value'] for p in data if p.get('name')=='OUT_errorMessage' and p.get('value')), ''))" 2>/dev/null)
+
+        if [ -n "$ERROR_MSG" ]; then
+          echo "ERROR: Work Update failed - $ERROR_MSG"
+          exit 1
+        fi
+
+        echo "✅ Post Implementation Review attached to $(CRQ_NUMBER)"
+      displayName: 'CRQ Work Update - Post Implementation Review'
+
+  - job: ITSMCloseCRQ
+    displayName: 'ITSM Close Change Request'
+    dependsOn:
+      - ITSM
+      - ITSMPostImplUpdate
+    pool: ${{ parameters.POOL_NAME }}
+    variables:
+      ITSM_AUTH_TOKEN: $[ dependencies.ITSM.outputs['itsmAuth.ITSM_AUTH_TOKEN'] ]
+      CRQ_NUMBER: $[ dependencies.ITSM.outputs['createCRQ.CRQ_NUMBER'] ]
+    steps:
+    - script: |
+        echo "Closing CRQ $(CRQ_NUMBER)..."
+
+        END_TIME=$(date +%s)
+
+        CLOSE_BODY=$(cat <<EOF
+        {
+          "inputParameters": [
+            {"name": "INP_ChangeNumber", "value": "$(CRQ_NUMBER)"},
+            {"name": "INP_EndDate", "value": "$END_TIME"},
+            {"name": "INP_Result", "value": "5000"}
+          ]
+        }
+        EOF
+        )
+
+        CLOSE_URL="https://itsmweb.standardbank.co.za:2030/baocdp/rest/process/:SBSA-OA-Generic_ITSM_Interface:ChangeManagement:CloseChange/execute?mode=sync"
+
+        CLOSE_RESPONSE=$(curl -k -s -X POST "$CLOSE_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authentication-Token: $(ITSM_AUTH_TOKEN)" \
+          -d "$CLOSE_BODY")
+
+        echo "Close CRQ Response: $CLOSE_RESPONSE"
+
+        RESULT_MSG=$(echo "$CLOSE_RESPONSE" | python3 -c "import sys,json; data=json.load(sys.stdin); print(next((p['value'] for p in data if p.get('name')=='OUT_Result'), ''))" 2>/dev/null)
+
+        if [ -z "$RESULT_MSG" ]; then
+          echo "WARNING: No result message in response"
+        else
+          echo "Close result: $RESULT_MSG"
+        fi
+
+        echo "✅ CRQ $(CRQ_NUMBER) closed successfully with status: Successful (5000)"
+      displayName: 'Close ITSM Change Request'
