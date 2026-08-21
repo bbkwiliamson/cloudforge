@@ -1,0 +1,126 @@
+name: Build and Push to ECR
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'cloudformation-deployer/**'
+  workflow_dispatch:
+    inputs:
+      IMAGE_TAG:
+        description: 'Docker Image Tag e.g: PROD-1.0.0'
+        required: true
+        type: string
+      RTE_EMAIL:
+        description: 'RTE (Release Train Engineer) Email'
+        required: true
+        type: string
+      TEAM_EMAIL:
+        description: 'Team Email for Approval Notification'
+        required: true
+        type: string
+      CRQ_DESCRIPTION:
+        description: 'A brief description of what the CRQ is about'
+        required: true
+        type: string
+      CRQ_DETAILS:
+        description: 'More about what is to be done'
+        required: true
+        type: string
+      AWS_ACCOUNT_ID:
+        description: 'Enter AWS Account ID'
+        required: false
+        type: string
+        default: '573185292006'
+
+env:
+  AWS_ACCOUNT_ID: '573185292006'
+  AWS_REGION: af-south-1
+  ECR_REPOSITORY: 'cloudforge/cloudforge'
+
+# permissions:
+#   id-token: write
+#   contents: read
+
+jobs:
+  build:
+    name: Build and Push Docker Image
+    runs-on: codebuild-dp-systems-enablement-iac-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    permissions:
+      #id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::573185292006:role/Bounded-GitHubActionsRole-dp-systems-enablement-Github-Runners
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repository if not exists
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }} || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }} --region ${{ env.AWS_REGION }}
+
+       # check docker directory
+      - name: Debug Docker
+        run: |
+          which docker
+          which dockerd
+          docker --version
+          ls -la /var/run/docker.sock || true
+          systemctl status docker || true
+
+      # start the docker daemon
+      - name: Start Docker daemon
+        run: |
+          dockerd --storage-driver=vfs &
+          timeout 60 sh -c 'until docker info > /dev/null 2>&1; do sleep 1; done'
+     # make buildx package available
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          use: true
+
+      - name: Build and push multi-platform image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./cloudformation-deployer
+          file: ./cloudformation-deployer/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.event.inputs.IMAGE_TAG }}
+     
+     # capturing build logs to be used by remedy crq
+      - name: Output Image URI
+        run: |
+          mkdir -p build-logs
+          echo "Multi-platform image pushed successfully:" | tee build-logs/build.log
+          echo "${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.event.inputs.IMAGE_TAG }}" | tee -a build-logs/build.log
+     # uploading the logs to be used by crq
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build-logs/
+  
+  
+  crq:
+    name: CRQ Remedy Integration
+    needs: build
+    uses: standardbank-ppb-digital-platforms/systems_enablement_remedy_crq_base/.github/workflows/github_crq_auto.yml@main
+    with:
+      RTE_EMAIL: ${{ github.event.inputs.RTE_EMAIL }}
+      TEAM_EMAIL: ${{ github.event.inputs.TEAM_EMAIL }}
+      CRQ_DESCRIPTION: ${{ github.event.inputs.CRQ_DESCRIPTION }}
+      CRQ_DETAILS: ${{ github.event.inputs.CRQ_DETAILS }}
+      AWS_ACCOUNT_ID: ${{ github.event.inputs.AWS_ACCOUNT_ID }}
+    secrets: inherit
