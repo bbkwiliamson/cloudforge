@@ -15,17 +15,19 @@
             <button type="button" onclick="logout()" class="user-info-btn" style="margin-top: 0;">Logout</button>
         </div>
         <div class="test-credentials-container">
-            <button type="button" onclick="openAwsConfig()" class="aws-config-btn">AWS Configuration</button>
-            <button type="button" onclick="openServiceCatalog()" class="service-catalog-btn">Service Catalog</button>
+            <span id="accountTypeBadge" style="display: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-right: 8px; vertical-align: middle;"></span>
+            <button type="button" onclick="openAwsConfig()" class="aws-config-btn" style="width: 70px; height: 70px; border-radius: 50%; padding: 10px; font-size: 11px; line-height: 1.2;">AWS Connect</button>
+            <button type="button" onclick="openServiceCatalog()" class="service-catalog-btn" style="width: 70px; height: 70px; border-radius: 50%; padding: 10px; font-size: 11px; line-height: 1.2;">Service Catalog</button>
         </div>
         <div class="support-info">
             Support: <a href="mailto:Sbg-DevOps-CloudEngineering@standardbank.co.za?subject=CloudForge Support Request" style="color: rgba(255,255,255,0.9); text-decoration: underline;">Sbg-DevOps-CloudEngineering@standardbank.co.za</a>
         </div>
     </div>
     
-    <div style="position: absolute; top: 80px; left: 20px; z-index: 10;">
-        <button type="button" onclick="openVpcHelper()" class="aws-config-btn" style="background: #28a745;">VPC Helper</button>
-        <button type="button" onclick="openITSM()" class="service-catalog-btn" style="background: #6f42c1; margin-left: 10px;">ITSM Access</button>
+    <div style="position: absolute; top: 80px; left: 20px; z-index: 10; display: flex; align-items: center;">
+        <button type="button" onclick="openVpcHelper()" class="aws-config-btn" style="background: #28a745; width: 70px; height: 70px; border-radius: 50%; padding: 10px; font-size: 11px; line-height: 1.2;">VPC Selector</button>
+        <button type="button" onclick="openITSM()" class="service-catalog-btn" style="background: #6f42c1; margin-left: 10px; width: 70px; height: 70px; border-radius: 50%; padding: 10px; font-size: 11px; line-height: 1.2;">ITSM Access</button>
+        <button type="button" onclick="openStackList()" class="aws-config-btn" style="background: #000; margin-left: 10px; width: 70px; height: 70px; border-radius: 50%; padding: 10px; font-size: 11px; line-height: 1.2;">Stack List</button>
     </div>
     
     <!-- User Policy Icon (Above Footer) -->
@@ -91,7 +93,7 @@
                 <button id="nextButton" onclick="nextGroup()">Next</button>
             </div>
             
-            <div class="form-group" id="stackNameGroup" style="display: none;">
+            <div class="form-group" id="stackNameGroup" style="display: none; background: #001a4d; color: white;">
                 <label>Stack Name:</label>
                 <div style="position: relative; display: flex; align-items: center;">
                     <input type="text" id="stackName" required oninput="validateStackName()" maxlength="128" style="flex: 1;">
@@ -106,8 +108,6 @@
             <!-- Hidden fields to store AWS config from popup -->
             <input type="hidden" id="region">
             <input type="hidden" id="accountId">
-            <input type="hidden" id="accessKeyId">
-            <input type="hidden" id="secretAccessKey">
         </div>
         
         <div id="result"></div>
@@ -124,33 +124,50 @@
     <!-- Include all popup HTML here -->
     <!-- AWS Config Popup -->
     <div class="popup-overlay" id="awsConfigPopup">
-        <div class="popup">
+        <div class="popup" style="background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 60px 25px rgba(0, 124, 186, 0.4), 0 0 120px 50px rgba(0, 124, 186, 0.2), 0 0 180px 80px rgba(0, 124, 186, 0.1);">
             <button type="button" onclick="closeAwsConfig()" class="close-btn">&times;</button>
             <h3>AWS Configuration</h3>
+
+            <!-- Auth mode toggle -->
+            <div class="popup-form-group" style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+                <span style="font-weight:bold; font-size:13px;">Role Assumption</span>
+                <label style="position:relative; display:inline-block; width:46px; height:24px; margin:0;">
+                    <input type="checkbox" id="authModeToggle" onchange="onAuthModeToggle()" style="opacity:0; width:0; height:0;">
+                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#007cba; border-radius:24px; transition:.3s;"></span>
+                    <span id="authModeThumb" style="position:absolute; content:''; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.3s;"></span>
+                </label>
+                <span style="font-weight:bold; font-size:13px;">Direct Keys</span>
+            </div>
+
             <div class="popup-form-group">
                 <label>AWS Region:</label>
                 <select id="popupRegion" oninput="validateAwsConfigForm()">
                     <option value="af-south-1">af-south-1</option>
-                    <option value="us-west-2">us-west-2</option>
                     <option value="eu-west-1">eu-west-1</option>
-                    <option value="us-east-1">us-east-1</option>
-                    <option value="ap-southeast-1">ap-southeast-1</option>
                 </select>
             </div>
-            <div class="popup-form-group">
+
+            <!-- Role assumption: account ID field -->
+            <div class="popup-form-group" id="accountIdSection">
                 <label>AWS Account ID:</label>
-                <input type="text" id="popupAccountId" placeholder="123456789012" required oninput="validateAwsConfigForm()">
+                <div id="accountDropdownContainer" style="position: relative;">
+                    <div style="display:flex; align-items:center;">
+                        <input type="text" id="accountSearchInput" placeholder="Enter AWS Account ID..." autocomplete="off" oninput="filterAccountDropdown()" style="width:100%; border-radius:4px;">
+                    </div>
+                    <input type="hidden" id="popupAccountId">
+                    <div id="accountDropdownList" style="display:none; position:absolute; z-index:1000; width:100%; max-height:200px; overflow-y:auto; background:white; border:1px solid #ccc; border-radius:4px; margin-top:2px; box-shadow:0 2px 8px rgba(0,0,0,0.15);"></div>
+                </div>
             </div>
-            <div class="popup-form-group">
-                <label>AWS Access Key ID (Base64 encoded):</label>
-                <input type="password" id="popupAccessKeyId" oninput="validateAwsConfigForm()">
+
+            <!-- Direct keys: credentials field -->
+            <div class="popup-form-group" id="credentialsSection" style="display:none;">
+                <label>AWS Account Credentials:</label>
+                <input type="password" id="awsCredentialsInput" placeholder="Base64 encoded ACCESS_KEY:SECRET_KEY" autocomplete="off" oninput="validateAwsConfigForm()" style="width:100%; border-radius:4px; letter-spacing:2px;">
+                <small style="color:#666;">Format before encoding: <code>AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY</code></small>
             </div>
-            <div class="popup-form-group">
-                <label>AWS Secret Access Key (Base64 encoded):</label>
-                <input type="password" id="popupSecretAccessKey" oninput="validateAwsConfigForm()">
-            </div>
+
             <div class="popup-buttons">
-                <button type="button" id="testCredentialsBtn" onclick="testCredentialsFromPopup()" class="test-btn" disabled>Test Credentials</button>
+                <button type="button" id="testCredentialsBtn" onclick="testCredentialsFromPopup()" class="test-btn" disabled>Test Connection</button>
                 <button type="button" id="saveConfigBtn" onclick="saveAwsConfig()" class="save-btn" disabled>Save</button>
                 <button type="button" onclick="clearAwsConfig()" class="clear-btn">Clear</button>
             </div>
@@ -250,7 +267,7 @@
 
     <!-- ITSM Query Popup -->
     <div class="popup-overlay" id="itsmQueryPopup">
-        <div class="popup" style="min-width: 600px; max-width: 800px;">
+        <div class="popup" style="min-width: 600px; max-width: 800px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 60px 25px rgba(0, 124, 186, 0.4), 0 0 120px 50px rgba(0, 124, 186, 0.2), 0 0 180px 80px rgba(0, 124, 186, 0.1);">
             <button type="button" onclick="closeITSMQuery()" class="close-btn">&times;</button>
             <h3 style="color: #6f42c1;">ITSM CRQ Query</h3>
             
@@ -353,7 +370,7 @@
 
     <!-- Service Catalog Popup -->
     <div class="popup-overlay" id="serviceCatalogPopup">
-        <div class="popup" style="min-width: 600px; max-width: 800px; max-height: 80vh; overflow-y: auto;">
+        <div class="popup" style="min-width: 600px; max-width: 800px; max-height: 80vh; overflow-y: auto; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 60px 25px rgba(0, 124, 186, 0.4), 0 0 120px 50px rgba(0, 124, 186, 0.2), 0 0 180px 80px rgba(0, 124, 186, 0.1);">
             <button type="button" onclick="closeServiceCatalog()" class="close-btn">&times;</button>
             <h3>Service Catalog</h3>
             
@@ -361,7 +378,7 @@
             <div style="margin-bottom: 20px; border-bottom: 2px solid #007cba;">
                 <button type="button" id="scProductsTab" onclick="showServiceCatalogTab('products')" style="background: #007cba; color: white; padding: 10px 20px; border: none; margin-right: 5px;">Browse Products</button>
                 <button type="button" id="scProvisionedTab" onclick="showServiceCatalogTab('provisioned')" style="background: #f8f9fa; color: #333; padding: 10px 20px; border: 1px solid #ddd; margin-right: 5px;">My Resources</button>
-                <button type="button" onclick="openVpcHelper()" style="background: #28a745; color: white; padding: 10px 20px; border: none; margin-left: 10px;">VPC Helper</button>
+                <button type="button" onclick="openVpcHelper()" style="background: #28a745; color: white; padding: 10px 20px; border: none; margin-left: 10px;">VPC Selector</button>
             </div>
             
             <div id="scProductList">
@@ -457,10 +474,22 @@
         </div>
     </div>
 
+    <!-- Stack List Popup -->
+    <div id="stackListPopup" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+        <div class="popup" style="min-width: 600px; max-width: 800px; max-height: 80vh; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 60px 25px rgba(0, 124, 186, 0.4), 0 0 120px 50px rgba(0, 124, 186, 0.2), 0 0 180px 80px rgba(0, 124, 186, 0.1);">
+            <button type="button" onclick="closeStackList()" style="position: absolute; top: 10px; right: 15px; background: #dc3545; border: none; color: white; font-size: 18px; cursor: pointer; border-radius: 4px; padding: 2px 8px;">&times;</button>
+            <h3 id="stackListTitle" style="color: #003087;">AWS Stack List</h3>
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="stackListSearch" placeholder="Type to filter stacks..." oninput="filterStackList()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+            </div>
+            <div id="stackListContent" style="max-height: 55vh; overflow-y: auto;"></div>
+        </div>
+    </div>
+
     <!-- VPC Helper Window -->
-    <div id="vpcHelperPopup" style="display: none; position: fixed; top: 20px; right: 20px; width: 400px; background: white; border: 2px solid #007cba; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1002;">
-        <div id="vpcHelperHeader" style="background: #007cba; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: move;">
-            <h4 style="margin: 0;">VPC Helper</h4>
+    <div id="vpcHelperPopup" style="display: none; position: fixed; top: 20px; right: 20px; width: 400px; background: white; border: 2px solid #001a4d; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1002;">
+        <div id="vpcHelperHeader" style="background: #001a4d; color: white; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: move;">
+            <h4 style="margin: 0;">VPC Selector</h4>
             <div>
                 <button onclick="minimizeVpcHelper()" style="background: none; border: none; color: white; font-size: 16px; margin-right: 10px; cursor: pointer;">−</button>
             </div>
@@ -531,6 +560,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Version Badge -->
+    <div id="versionBadge" style="position:fixed; bottom:10px; right:15px; font-size:12px; color:#888; z-index:999;"></div>
 
     <!-- Include JavaScript modules -->
     <script src="js/auth.js"></script>
