@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudForge Deployer Role - Cross-account role for CloudForge and Developer Portal to manage resources
+
+Parameters:
+  # TrustedPrincipalArn:
+  #   Type: String
+  #   Default: arn:aws:iam::573185292006:user/svc_DevOpsCICDUsr
+  #   Description: ARN of the principal allowed to assume this role (user for testing)
+  CloudforgeRoleArn:
+    Type: String
+    Default: arn:aws:iam::573185292006:role/Bounded-cloudforge-task-role
+    Description: the Cloudforge role allowed to assume this role (Production)
+  # CloudforgeRoleEKSArn:
+  #   Type: String
+  #   Default: arn:aws:iam::573185292006:role/BoundedSBG-EKS-Ec2Role
+  #   Description: EKS node group role allowed to assume this role (Production)
+  CloudforgeUsers:
+    Type: String
+    Description: Cloudforge access secret for users{the name must not change}
+    Default: cloudforge/allowed-users
+  TeamEmail:
+    Type: String
+    Description: the email of the team owning this resource
+  GroupName:
+    Type: String
+    Description: the name of the group owning this resource
+Resources:
+  CloudForgeUserListSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Ref CloudforgeUsers
+      Description: CloudForge AWS Account Access for specific Users
+      SecretString: !Sub |
+        {
+          "allowedUsers": [
+            "Users@standardbank.co.za",
+            "another.user@standardbank.co.za"
+          ]
+        }
+      Tags:
+        - Key: Name
+          Value: CloudForge-prod-account-list-Secret
+        - Key: Environment
+          Value: sit
+        - Key: Group-Name
+          Value: !Ref GroupName
+        - Key: Team-Email
+          Value: !Ref TeamEmail
+  CloudForgeDeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # RoleName: Bounded-CloudForge-local
+      RoleName: Bounded-Cloudforge-DevPortal-cross-Account
+      PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/BoundedPermissionsPolicy"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: [
+                # !Ref CloudforgeRoleEKSArn,
+                !Ref CloudforgeRoleArn
+              ]
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref CloudForgeDeployerPolicy
+
+  CloudForgeDeployerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: Bounded-CloudForge-DevPortal-cross-Policy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFormation
+            Effect: Allow
+            Action:
+              - cloudformation:*
+            Resource: '*'
+          - Sid: EC2DNS
+            Effect: Allow
+            Action:
+              - ec2:*
+              - route53:ListResourceRecordSets
+              - route53:ChangeResourceRecordSets
+              - route53:GetChange
+            Resource: '*'
+          - Sid: S3
+            Effect: Allow
+            Action:
+              - s3:Create*
+              - s3:List*
+              - s3:Get*
+              - s3:Put*
+              - s3:Delete*
+            Resource: '*'
+          - Sid: Lambda
+            Effect: Allow
+            Action:
+              - lambda:List*
+              - lambda:Create*
+              - lambda:Delete*
+              - lambda:Update*
+              - lambda:Get*
+              - lambda:Add*
+              - lambda:Remove*
+              - lambda:InvokeFunction
+              - lambda:Publish*
+              - lambda:TagResource
+            Resource: '*'
+          - Sid: RDS
+            Effect: Allow
+            Action:
+              - rds:*
+              - dynamodb:*
+            Resource: '*'
+          - Sid: IAM
+            Effect: Allow
+            Action:
+              - iam:List*
+              - iam:Get*
+              - iam:PassRole
+              - iam:Create*
+              - iam:Delete*
+              - iam:AttachRolePolicy
+              - iam:DetachRolePolicy
+              - iam:Put*
+              - iam:TagRole
+              - iam:Update*
+              - iam:ListUsers
+              - iam:ListPolicies
+              - iam:ListAttachedUserPolicies
+              - iam:ListUserPolicies
+              - iam:GetUser
+              - iam:GetPolicy
+              - iam:GetPolicyVersion
+              - ssm:PutParameter
+              - iam:CreateOpenIDConnectProvider
+              - iam:AddRoleToInstanceProfile
+              - ssm:DeleteParameter
+              - ssm:GetParameter
+              - ssm:AddTagsToResource
+              - acm:GetCertificate
+              - acm:DescribeCertificate
+              - ssm:GetParametersByPath
+            Resource: '*'
+          - Sid: SNS
+            Effect: Allow
+            Action:
+              - sns:*
+            Resource: '*'
+          - Sid: ServiceCatalog
+            Effect: Allow
+            Action:
+              - servicecatalog:*
+            Resource: '*'
+          - Sid: SecretsManager
+            Effect: Allow
+            Action:
+              - secretsmanager:*
+            Resource: '*'
+          - Sid: KMS
+            Effect: Allow
+            Action:
+              - kms:*
+            Resource: '*'
+          - Sid: containers
+            Effect: Allow
+            Action:
+              - eks:*
+              - ecs:*
+              - ecr:*
+            Resource: '*'
+          - Sid: eventsAndResources
+            Effect: Allow
+            Action:
+              - cloudwatch:*
+              - logs:*
+              - events:*
+              - tag:*
+              - autoscaling:*
+              - application-autoscaling:*
+              - resource-groups:*
+              - elasticloadbalancing:*
+            Resource: '*'
+          - Sid: STS
+            Effect: Allow
+            Action:
+              - sts:GetCallerIdentity
+            Resource: '*'
+          - Sid: APICICD
+            Effect: Allow
+            Action:
+              - codebuild:*
+              - codecommit:*
+              - codepipeline:*
+              - codedeploy:*
+              - codeartifact:*
+              - codestar:* 
+              - codestar-connections:*
+              - amplify:*
+              - states:*
+              - execute-api:Invoke
+              - execute-api:ManageConnections
+              - api-gateway:*
+              - apigateway:*
+              - sqs:*
+            Resource: '*'
+
+Outputs:
+  RoleArn:
+    Description: ARN of the CloudForge Deployer Role
+    Value: !GetAtt CloudForgeDeployerRole.Arn
+  RoleName:
+    Description: Name of the CloudForge Deployer Role
+    Value: !Ref CloudForgeDeployerRole

@@ -18,6 +18,26 @@ aws configure
 ```bash
 python server.py
 ```
+    if the first three steps fail... do the following
+                            # 1. Navigate to the app directory
+                        cd /Users/brain.bapela/BBK-CDK/systems_enablement_tools_cloudforge/cloudformation-deployer
+
+                        # 2. Create virtual environment
+                        python3 -m venv venv
+
+                        # 3. Activate it
+                        source venv/bin/activate
+
+                        # 4. Install dependencies
+                        pip install -r requirements.txt
+
+                        # 5. Set up your env file
+                        cp .env.example .env
+                        # Edit .env with your actual credentials
+
+                        # 6. Run the app
+                        python server.py
+
 
 4. Open http://localhost:3000 in your browser
 

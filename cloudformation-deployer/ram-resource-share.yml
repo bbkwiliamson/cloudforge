@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RAM Resource Share for sharing VPC Prefix List across accounts
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: RAM Configuration
+        Parameters:
+          - TeamName
+          - PrefixListId
+          - PrincipalIds
+      - Label:
+          default: Tagging
+        Parameters:
+          - TeamEmail
+          - GroupName
+          - UTRKey
+          - TCRKey
+
+Parameters:
+  TeamName:
+    Type: String
+    Description: Team name owning this resource; e.g; team-name(follow same format)
+  TeamEmail:
+    Type: String
+    Description: Team email owning this resource
+  GroupName:
+    Type: String
+    Description: Group name owning this resource
+  UTRKey:
+    Type: String
+    Description: UTRKey owning this resource for billing
+  TCRKey:
+    Type: String
+    Description: TCRKey owning this resource for billing
+  PrefixListId:
+    Type: String
+    Description: Select the Prefix List to share
+  PrincipalIds:
+    Type: CommaDelimitedList
+    Description: Comma-separated list of AWS account IDs or OU ARNs to share with e.g. 123456789012,987654321098
+
+Resources:
+  ResourceShare:
+    Type: AWS::RAM::ResourceShare
+    Properties:
+      Name: !Sub ${TeamName}-prefix-list-share
+      ResourceArns:
+        - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:prefix-list/${PrefixListId}
+      Principals: !Ref PrincipalIds
+      AllowExternalPrincipals: true
+      Tags:
+        - Key: Team-Email
+          Value: !Ref TeamEmail
+        - Key: Group-Name
+          Value: !Ref GroupName
+        - Key: Team-Name
+          Value: !Ref TeamName
+        - Key: UTRKey
+          Value: !Ref UTRKey
+        - Key: TCRKey
+          Value: !Ref TCRKey
+
+Outputs:
+  ResourceShareArn:
+    Value: !GetAtt ResourceShare.Arn
+    Description: ARN of the RAM Resource Share

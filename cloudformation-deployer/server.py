@@ -4,6 +4,7 @@ import sys
 import logging
 import ipaddress
 from itsm_integration import ITSMIntegration
+from utils.ecr_version import get_latest_image_tag
 
 # Import blueprints
 from routes.aws_resources_routes import aws_resources_bp
@@ -15,6 +16,7 @@ from routes.auth_routes import auth_bp
 from routes.itsm_routes import itsm_bp
 from routes.stack_mgmt_routes import stack_mgmt_bp
 from routes.s3_routes import s3_routes_bp
+from routes.prefix_list_routes import prefix_list_bp
 
 # Initialize ITSM integration and authenticate
 itsm = ITSMIntegration()
@@ -66,6 +68,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(itsm_bp)
 app.register_blueprint(stack_mgmt_bp)
 app.register_blueprint(s3_routes_bp)
+app.register_blueprint(prefix_list_bp)
 
 @app.before_request
 def restrict_access():
@@ -76,6 +79,10 @@ def restrict_access():
 @app.route('/health')
 def health_check():
     return jsonify({'status': 'healthy', 'service': 'CloudForge Template Deployer'}), 200
+
+@app.route('/version')
+def get_version():
+    return jsonify({'version': get_latest_image_tag()})
 
 @app.route('/')
 def index():

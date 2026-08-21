@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC Prefix List for managing allowed CIDRs
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Prefix List Configuration
+        Parameters:
+          - TeamName
+          - AllowedCidrs
+          - MaxEntries
+      - Label:
+          default: Tagging
+        Parameters:
+          - TeamEmail
+          - GroupName
+          - UTRKey
+          - TCRKey
+
+Parameters:
+  TeamName:
+    Type: String
+    Description: Team name owning this resource; e.g; team-name(follow same format)
+  TeamEmail:
+    Type: String
+    Description: Team email owning this resource
+  GroupName:
+    Type: String
+    Description: Group name owning this resource
+  UTRKey:
+    Type: String
+    Description: UTRKey owning this resource for billing
+  TCRKey:
+    Type: String
+    Description: TCRKey owning this resource for billing
+  AllowedCidrs:
+    Type: CommaDelimitedList
+    Description: Comma-separated list of CIDRs e.g. 10.0.0.0/24,172.16.0.0/12
+    Default: "10.109.100.0/24,172.16.0.0/12"
+  MaxEntries:
+    Type: Number
+    Description: Maximum number of CIDR entries the prefix list can hold, set higher than current need
+    Default: 50
+
+Resources:
+  PrefixList:
+    Type: AWS::EC2::PrefixList
+    Properties:
+      PrefixListName: !Sub ${TeamName}-allowed-cidrs
+      AddressFamily: IPv4
+      MaxEntries: !Ref MaxEntries
+      Entries:
+        - Cidr: !Select [0, !Ref AllowedCidrs]
+        - Cidr: !Select [1, !Ref AllowedCidrs]
+      Tags:
+        - Key: Team-Email
+          Value: !Ref TeamEmail
+        - Key: Group-Name
+          Value: !Ref GroupName
+        - Key: Team-Name
+          Value: !Ref TeamName
+        - Key: UTRKey
+          Value: !Ref UTRKey
+        - Key: TCRKey
+          Value: !Ref TCRKey
+
+Outputs:
+  PrefixListId:
+    Value: !Ref PrefixList
+    Description: Prefix List ID to reference in security groups
+  PrefixListArn:
+    Value: !GetAtt PrefixList.Arn
+
